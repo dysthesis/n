@@ -1,15 +1,8 @@
 {
-  self,
-  lib,
-  pkgs,
   rustPlatform,
-  symlinkJoin,
   cargo,
   rustc,
-  luajit,
   pkg-config,
-  makeWrapper,
-  buildEnv,
   ...
 }:
 rustPlatform.buildRustPackage rec {
