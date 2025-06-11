@@ -16,7 +16,7 @@ impl Link {
         // If url cannot parse thsi link, it's either broken or points to a local file...
         if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str())
             // ...and if we can parse it as a MarkdownPath, it's probably a markdown path.
-            && let Ok(path) = MarkdownPath::try_from(PathBuf::from(self.url.clone()))
+            && let Ok(path) = MarkdownPath::new(target.base_path(), PathBuf::from(self.url.clone()))
         {
             return &path == target;
         }

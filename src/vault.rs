@@ -22,22 +22,26 @@ impl Vault {
     pub fn documents(&self) -> &Vec<Document> {
         &self.documents
     }
-    pub fn new(path: PathBuf) -> Result<Self, VaultInitialisationError> {
-        let documents = path
+    pub fn new(base_path: PathBuf) -> Result<Self, VaultInitialisationError> {
+        let documents = base_path
             .read_dir()
             .map_err(|reason| VaultInitialisationError::ReadDirFailed {
-                path: path.clone(),
+                path: base_path.clone(),
                 reason: reason.to_string(),
             })?
             .filter_map(|path| match path {
-                Ok(file) => Document::new(&file.path()).ok(),
                 // TODO: Log this error. We don't want one broken file to block the initialisation
                 // process, but we also might want to optionally know which file failed.
+                Ok(file) => Document::new(base_path.clone(), file.path().clone()).ok(),
+                // TODO: This one, too.
                 Err(_) => None,
             })
             .collect();
 
-        Ok(Vault { path, documents })
+        Ok(Vault {
+            path: base_path,
+            documents,
+        })
     }
 
     /// Get the list of documents which references the given document
