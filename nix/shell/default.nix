@@ -14,5 +14,6 @@ pkgs.mkShell {
     cargo
     rustToolchains.nightly
     bacon
+    lazyjj
   ];
 }
