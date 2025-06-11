@@ -1,20 +1,24 @@
 {
+  pkgs,
   rustPlatform,
-  cargo,
-  rustc,
   pkg-config,
   ...
-}:
-rustPlatform.buildRustPackage rec {
-  name = "zk";
-  version = "0.1.0";
+}: let
+  rustNightly =
+    pkgs.rust-bin.selectLatestNightlyWith
+    (toolchain: toolchain.default);
+in
+  rustPlatform.buildRustPackage rec {
+    name = "zk";
+    version = "0.1.0";
 
-  nativeBuildInputs = [
-    cargo
-    rustc
-    pkg-config
-  ];
+    nativeBuildInputs = [
+      rustNightly
+      pkg-config
+    ];
+    cargo = rustNightly;
+    rustc = rustNightly;
 
-  src = ../../.;
-  cargoLock.lockFile = "${src}/Cargo.lock";
-}
+    src = ../../.;
+    cargoLock.lockFile = "${src}/Cargo.lock";
+  }
