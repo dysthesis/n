@@ -11,5 +11,6 @@ pkgs.mkShell {
     rustToolchains.nightly
     bacon
     cargo-bloat
+    cargo-audit
   ];
 }
