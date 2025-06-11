@@ -1,18 +1,25 @@
 use std::{ffi::OsStr, fmt::Display, fs, path::PathBuf};
 
-use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
+use percent_encoding::percent_decode_str;
 use pulldown_cmark::{Event, LinkType, Parser, Tag, TextMergeStream};
 use thiserror::Error;
 
 use crate::link::Link;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 /// A path that is guaranteed to be a Markdown file
 pub struct MarkdownPath {
     /// The path of the directory the document is in
     base_path: PathBuf,
     /// The path to the file
     path: PathBuf,
+}
+
+impl Eq for MarkdownPath {}
+impl PartialEq for MarkdownPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonicalised_path() == other.canonicalised_path()
+    }
 }
 
 impl MarkdownPath {
@@ -27,7 +34,7 @@ impl MarkdownPath {
                 .decode_utf8_lossy()
                 .as_ref()
                 .into();
-            Ok((MarkdownPath { base_path, path }))
+            Ok(MarkdownPath { base_path, path })
         } else {
             Err(ParseError::NotMarkdown { path })
         }

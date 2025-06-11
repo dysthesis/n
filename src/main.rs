@@ -2,9 +2,7 @@ mod document;
 mod link;
 mod vault;
 
-use std::path::PathBuf;
-
-use crate::{document::MarkdownPath, link::Link, vault::Vault};
+use crate::vault::Vault;
 
 // WARN: For testing purpposes
 static NOTES_DIR: &str = "/home/demiurge/Documents/Notes/Contents/";

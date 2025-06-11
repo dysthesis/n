@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::document::{Document, MarkdownPath};
+use crate::document::MarkdownPath;
 
 #[derive(Debug)]
 /// A link in a Markdown file
