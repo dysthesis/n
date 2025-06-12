@@ -1,5 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
+use owo_colors::OwoColorize;
+use percent_encoding::percent_decode_str;
 use serde::Serialize;
 
 use crate::path::MarkdownPath;
@@ -23,5 +28,14 @@ impl Link {
             return &path == target;
         }
         false
+    }
+}
+
+impl Display for Link {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let url = percent_decode_str(self.url.as_ref())
+            .decode_utf8_lossy()
+            .to_string();
+        write!(f, "{}", url.bright_blue().underline())
     }
 }

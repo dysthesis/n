@@ -1,3 +1,4 @@
+use owo_colors::OwoColorize;
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use proptest::prelude::*;
 use serde::Serialize;
@@ -18,12 +19,6 @@ pub enum PathError {
     CanonicalisationFailed { path: PathBuf, reason: String },
 }
 
-impl Display for MarkdownPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path().to_string_lossy())
-    }
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 /// A path that is guaranteed to be a Markdown file
 pub struct MarkdownPath(PathBuf);
@@ -32,7 +27,7 @@ impl Serialize for MarkdownPath {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&self.path().to_string_lossy())
     }
 }
 
@@ -97,6 +92,13 @@ fn maybe_encode(path: &Path, do_encode: bool) -> PathBuf {
     const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
     let encoded = utf8_percent_encode(&path.to_string_lossy(), FRAGMENT).to_string();
     PathBuf::from(encoded)
+}
+
+impl Display for MarkdownPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display = self.path().to_string_lossy().underline().bold().to_string();
+        write!(f, "{display}")
+    }
 }
 
 proptest! {

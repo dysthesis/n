@@ -4,6 +4,8 @@ mod link;
 mod path;
 mod vault;
 
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
 use crate::{
     cli::{Args, Subcommand},
     path::MarkdownPath,
@@ -22,7 +24,7 @@ fn main() {
             if args.json {
                 println!("{}", serde_json::to_string(document).unwrap());
             } else {
-                println!("{document:?}");
+                println!("{document}");
             }
         }
         Subcommand::Backlinks(path) => {
@@ -32,7 +34,15 @@ fn main() {
             if args.json {
                 println!("{}", serde_json::to_string(&backlinks).unwrap());
             } else {
-                println!("{backlinks:?}");
+                let formatted_links: Vec<String> = backlinks
+                    .into_par_iter()
+                    .map(|val| val.to_string())
+                    .collect();
+
+                let mut formatted_links = tabled::Table::new(formatted_links);
+                formatted_links.with(tabled::settings::style::Style::rounded());
+
+                println!("{formatted_links}");
             }
         }
         Subcommand::Links(path) => {
