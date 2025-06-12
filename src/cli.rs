@@ -3,6 +3,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum Subcommand {
     Inspect(PathBuf),
+    Backlinks(PathBuf),
 }
 
 /// Parsed ommand-line arguments
@@ -49,6 +50,9 @@ impl Args {
         let subcommand = match subcommand.ok_or("missing subcommand")? {
             val if val == "inspect" => {
                 Subcommand::Inspect(argument.ok_or("missing argument")?.into())
+            }
+            val if val == "backlinks" => {
+                Subcommand::Backlinks(argument.ok_or("missing argument")?.into())
             }
             _ => todo!(),
         };
