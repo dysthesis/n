@@ -1,5 +1,6 @@
 mod document;
 mod link;
+mod path;
 mod vault;
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

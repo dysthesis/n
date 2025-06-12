@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use thiserror::Error;
 
-use crate::document::{Document, MarkdownPath};
+use crate::{document::Document, path::MarkdownPath};
 
 /// A collection of notes
 pub struct Vault {

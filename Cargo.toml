@@ -1,5 +1,6 @@
 [dependencies]
 percent-encoding = "2.3.1"
+proptest = "1.7.0"
 pulldown-cmark = {version = "0.13.0", features = ["simd"]}
 rayon = "1.10.0"
 thiserror = "2.0.12"
