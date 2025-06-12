@@ -1,35 +1,26 @@
+mod cli;
 mod document;
 mod link;
 mod path;
 mod vault;
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-
-use crate::vault::Vault;
-
-// WARN: For testing purpposes
-static NOTES_DIR: &str = "/home/demiurge/Documents/Notes/Contents/";
+use crate::{cli::Args, path::MarkdownPath, vault::Vault};
 
 fn main() {
-    let vault = Vault::new(NOTES_DIR.into()).unwrap();
-    vault.documents().iter().for_each(|document| {
-        println!("--------------------------------------------");
-        println!(
-            "The document {:?} is referenced by:",
-            &document.get_metadata("title".to_string()).unwrap()
-        );
-        let backlinks = vault.find_backlinks(&document.path());
-        backlinks
-            .par_iter()
-            .map(|link| {
-                vault
-                    .get_document(link)
-                    .unwrap()
-                    .get_metadata("title".to_string())
-                    .unwrap()
-            })
-            .for_each(|backlink| println!("  - {backlink:?}"));
-    });
-    let json = dbg!(serde_json::to_string(&vault)).unwrap();
-    println!("{json}");
+    let args = Args::parse().unwrap();
+    println!("{args:?}");
+    let vault = Vault::new(args.vault_dir.clone()).unwrap();
+    // println!("{vault:?}");
+    match args.subcommand {
+        cli::Subcommand::Inspect(path) => {
+            let base_path = args.vault_dir;
+            let full_path = MarkdownPath::new(base_path, path).unwrap();
+            let document = dbg!(vault.get_document(&full_path)).unwrap();
+            if args.json {
+                println!("{}", serde_json::to_string(document).unwrap());
+            } else {
+                println!("{document:?}");
+            }
+        }
+    }
 }
