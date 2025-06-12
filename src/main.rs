@@ -1,6 +1,9 @@
 mod document;
 mod link;
+mod path;
 mod vault;
+
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::vault::Vault;
 
@@ -11,11 +14,22 @@ fn main() {
     let vault = Vault::new(NOTES_DIR.into()).unwrap();
     vault.documents().iter().for_each(|document| {
         println!("--------------------------------------------");
-        let path = document.path();
-        println!("The document {} is referenced by:", &path);
-        let backlinks = vault.find_backlinks(&path);
+        println!(
+            "The document {:?} is referenced by:",
+            &document.get_metadata("title".to_string()).unwrap()
+        );
+        let backlinks = vault.find_backlinks(&document.path());
         backlinks
-            .iter()
-            .for_each(|backlink| println!("  - {backlink}"));
+            .par_iter()
+            .map(|link| {
+                vault
+                    .get_document(link)
+                    .unwrap()
+                    .get_metadata("title".to_string())
+                    .unwrap()
+            })
+            .for_each(|backlink| println!("  - {backlink:?}"));
     });
+    let json = dbg!(serde_json::to_string(&vault)).unwrap();
+    println!("{json}");
 }

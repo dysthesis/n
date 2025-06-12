@@ -4,7 +4,15 @@
   lib,
   inputs,
   ...
-}: rec {
+}:
+rec {
   default = zk;
-  zk = pkgs.callPackage ./mdq.nix {inherit pkgs inputs lib self;};
+  zk = pkgs.callPackage ./zk.nix {
+    inherit
+      pkgs
+      inputs
+      lib
+      self
+      ;
+  };
 }

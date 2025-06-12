@@ -1,8 +1,4 @@
-{
-  pkgs,
-  self,
-  ...
-}:
+{pkgs, ...}:
 pkgs.mkShell {
   name = "zk";
 
@@ -14,6 +10,8 @@ pkgs.mkShell {
     cargo
     rustToolchains.nightly
     bacon
-    lazyjj
+    cargo-bloat
+    cargo-audit
+    cargo-expand
   ];
 }

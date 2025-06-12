@@ -1,76 +1,83 @@
-use std::{ffi::OsStr, fmt::Display, fs, path::PathBuf};
+use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
-use percent_encoding::percent_decode_str;
-use pulldown_cmark::{Event, LinkType, Parser, Tag, TextMergeStream};
+use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::Serialize;
 use thiserror::Error;
+use yaml_rust2::{Yaml, YamlLoader};
 
-use crate::link::Link;
+use crate::{link::Link, path::MarkdownPath};
 
-#[derive(Debug, Clone)]
-/// A path that is guaranteed to be a Markdown file
-pub struct MarkdownPath {
-    /// The path of the directory the document is in
-    base_path: PathBuf,
-    /// The path to the file
-    path: PathBuf,
-}
-
-impl Eq for MarkdownPath {}
-impl PartialEq for MarkdownPath {
-    fn eq(&self, other: &Self) -> bool {
-        self.canonicalised_path() == other.canonicalised_path()
-    }
-}
-
-impl MarkdownPath {
-    pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
-        if path.extension().and_then(OsStr::to_str) == Some("md") {
-            // TODO: Figure out a better way to encapsulate this decoding logic
-            let base_path: PathBuf = percent_decode_str(base_path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
-            let path: PathBuf = percent_decode_str(path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
-            Ok(MarkdownPath { base_path, path })
-        } else {
-            Err(ParseError::NotMarkdown { path })
-        }
-    }
-    #[inline]
-    pub fn base_path(&self) -> PathBuf {
-        self.base_path.clone()
-    }
-    #[inline]
-    pub fn path(&self) -> PathBuf {
-        self.path.clone()
-    }
-    #[inline]
-    pub fn canonicalised_path(&self) -> PathBuf {
-        self.base_path().join(self.path())
-    }
-}
-
-impl Display for MarkdownPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.canonicalised_path().to_string_lossy())
-    }
-}
+type HashMap<K, V> = BTreeMap<K, V>;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("the path `{path}` is not a Markdown file")]
-    NotMarkdown { path: PathBuf },
+    #[error("the path `{path}` is invalid because {reason}")]
+    InvalidPath { path: PathBuf, reason: String },
+    #[error("failed to read file `{path}` because {reason}")]
+    FailedToReadFile { path: PathBuf, reason: String },
+    #[error("the frontmatter for the document `{path}` cannot be parsed because {reason}")]
+    FrontmatterParseFailed { path: PathBuf, reason: String },
+    #[error("the key of the YAML frontmatter must be a string. `{key:?}` was received instead")]
+    KeyIsNotString { key: Value },
+}
+
+#[derive(Clone, Debug, Serialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub enum Value {
+    Real(String),
+    Integer(i64),
+    String(String),
+    Boolean(bool),
+    Array(Vec<Value>),
+    Hash(BTreeMap<Value, Value>),
+    Alias(usize),
+    Null,
+    BadValue,
+}
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_str = match self {
+            Self::String(str) => str,
+            _ => todo!(),
+        };
+        write!(f, "{display_str}")
+    }
+}
+
+impl From<Yaml> for Value {
+    fn from(value: Yaml) -> Self {
+        match value {
+            Yaml::Real(val) => Self::Real(val),
+            Yaml::Integer(val) => Self::Integer(val),
+            Yaml::String(val) => Self::String(val),
+            Yaml::Boolean(val) => Self::Boolean(val),
+            Yaml::Array(values) => {
+                Self::Array(values.into_par_iter().map(|value| value.into()).collect())
+            }
+            Yaml::Hash(map) => {
+                let map = map.into_iter().map(|(k, v)| (k.into(), v.into())).fold(
+                    HashMap::new(),
+                    |mut acc, (k, v): (Value, Value)| {
+                        acc.insert(k, v);
+                        acc
+                    },
+                );
+                Self::Hash(map)
+            }
+            Yaml::Alias(val) => Self::Alias(val),
+            Yaml::Null => Self::Null,
+            Yaml::BadValue => Self::BadValue,
+        }
+    }
 }
 
 /// A single Markdown document
 /// TODO: Implement metadata parsing
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Document {
     path: MarkdownPath,
     links: Vec<Link>,
+    metadata: HashMap<String, Value>,
 }
 
 impl Document {
@@ -78,38 +85,101 @@ impl Document {
     pub fn path(&self) -> MarkdownPath {
         self.path.clone()
     }
+    #[inline]
+    pub fn insert_link(&mut self, link: Link) {
+        self.links.push(link);
+    }
+    #[inline]
+    pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) -> Result<(), ParseError> {
+        let key = if let Yaml::String(val) = key {
+            Ok(val)
+        } else {
+            Err(ParseError::KeyIsNotString { key: key.into() })
+        }?;
+        self.metadata.insert(key, value.into());
+        Ok(())
+    }
+
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
-        /// Given the path to a file, parses it and returns all of the links contained in the file
-        pub fn get_links(path: &MarkdownPath) -> Vec<Link> {
-            let mut results = Vec::new();
-            let document = fs::read_to_string(path.canonicalised_path()).unwrap();
-            let mut iter = TextMergeStream::new(Parser::new(&document)).peekable();
-            while let Some(event) = iter.next() {
-                if let Event::Start(Tag::Link {
-            link_type: LinkType::Inline,
-            dest_url,
-            title: _,
-            id: _,
-        }) = event
-            // The label of the link is contained in the next event
-            && let Some(Event::Text(text)) = iter.peek()
-                {
-                    results.push(Link {
-                        file: path.clone(),
-                        text: text.to_owned().into_string(),
+        let path = MarkdownPath::new(base_path.clone(), path.clone()).map_err(|e| {
+            ParseError::InvalidPath {
+                path: base_path.join(path),
+                reason: e.to_string(),
+            }
+        })?;
+
+        let mut document = Document {
+            path: path.clone(),
+            links: Vec::new(),
+            metadata: HashMap::new(),
+        };
+
+        let contents =
+            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
+                path: path.path(),
+                reason: e.to_string(),
+            })?;
+
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+        let mut iter = TextMergeStream::new(Parser::new_ext(&contents, options)).peekable();
+
+        while let Some(event) = iter.next() {
+            match (event, iter.peek()) {
+                // Parse link
+                (
+                    Event::Start(Tag::Link {
+                        link_type: LinkType::Inline,
+                        dest_url,
+                        title: _,
+                        id: _,
+                    }),
+                    Some(Event::Text(text)),
+                ) => {
+                    document.insert_link(Link {
+                        _file: path.clone(),
+                        _text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
                 }
+                // Parse frontmatter
+                (
+                    Event::Start(Tag::MetadataBlock(MetadataBlockKind::YamlStyle)),
+                    Some(Event::Text(text)),
+                ) => {
+                    let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
+                        .map_err(|e| ParseError::FrontmatterParseFailed {
+                            path: path.clone().path(),
+                            reason: e.to_string(),
+                        })?;
+                    let root =
+                        parsed
+                            .first()
+                            .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                path: path.clone().path(),
+                                reason: "Cannot get the root of the frontmatter".into(),
+                            })?;
+                    let hash =
+                        root.as_hash()
+                            .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                path: path.clone().path(),
+                                reason: "Top-level is not a mapping".into(),
+                            })?;
+                    hash.iter().for_each(|(k, v)| {
+                        _ = document.insert_metadata(k.to_owned(), v.to_owned());
+                    });
+                }
+                _ => {}
             }
-
-            results
         }
-        let path = MarkdownPath::new(base_path, path)?;
-        let links = get_links(&path);
 
-        Ok(Document { path, links })
+        Ok(document)
     }
     pub fn has_link_to(&self, path: &MarkdownPath) -> bool {
         self.links.iter().any(|link| link.points_to(path))
+    }
+    #[inline]
+    pub fn get_metadata(&self, key: String) -> Option<&Value> {
+        self.metadata.get(&key)
     }
 }
