@@ -15,12 +15,8 @@ fn main() {
     vault.documents().iter().for_each(|document| {
         println!("--------------------------------------------");
         println!(
-            "The document {} is referenced by:",
-            &document
-                .get_metadata("title".to_string())
-                .unwrap()
-                .as_str()
-                .unwrap()
+            "The document {:?} is referenced by:",
+            &document.get_metadata("title".to_string()).unwrap()
         );
         let backlinks = vault.find_backlinks(&document.path());
         backlinks
@@ -31,9 +27,9 @@ fn main() {
                     .unwrap()
                     .get_metadata("title".to_string())
                     .unwrap()
-                    .as_str()
-                    .unwrap()
             })
-            .for_each(|backlink| println!("  - {backlink}"));
+            .for_each(|backlink| println!("  - {backlink:?}"));
     });
+    let json = dbg!(serde_json::to_string(&vault)).unwrap();
+    println!("{json}");
 }

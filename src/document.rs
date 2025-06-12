@@ -1,10 +1,14 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::Serialize;
 use thiserror::Error;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{link::Link, path::MarkdownPath};
+
+type HashMap<K, V> = BTreeMap<K, V>;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
@@ -14,15 +18,66 @@ pub enum ParseError {
     FailedToReadFile { path: PathBuf, reason: String },
     #[error("the frontmatter for the document `{path}` cannot be parsed because {reason}")]
     FrontmatterParseFailed { path: PathBuf, reason: String },
+    #[error("the key of the YAML frontmatter must be a string. `{key:?}` was received instead")]
+    KeyIsNotString { key: Value },
+}
+
+#[derive(Clone, Debug, Serialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub enum Value {
+    Real(String),
+    Integer(i64),
+    String(String),
+    Boolean(bool),
+    Array(Vec<Value>),
+    Hash(BTreeMap<Value, Value>),
+    Alias(usize),
+    Null,
+    BadValue,
+}
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_str = match self {
+            Self::String(str) => str,
+            _ => todo!(),
+        };
+        write!(f, "{display_str}")
+    }
+}
+
+impl From<Yaml> for Value {
+    fn from(value: Yaml) -> Self {
+        match value {
+            Yaml::Real(val) => Self::Real(val),
+            Yaml::Integer(val) => Self::Integer(val),
+            Yaml::String(val) => Self::String(val),
+            Yaml::Boolean(val) => Self::Boolean(val),
+            Yaml::Array(values) => {
+                Self::Array(values.into_par_iter().map(|value| value.into()).collect())
+            }
+            Yaml::Hash(map) => {
+                let map = map.into_iter().map(|(k, v)| (k.into(), v.into())).fold(
+                    HashMap::new(),
+                    |mut acc, (k, v): (Value, Value)| {
+                        acc.insert(k, v);
+                        acc
+                    },
+                );
+                Self::Hash(map)
+            }
+            Yaml::Alias(val) => Self::Alias(val),
+            Yaml::Null => Self::Null,
+            Yaml::BadValue => Self::BadValue,
+        }
+    }
 }
 
 /// A single Markdown document
 /// TODO: Implement metadata parsing
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Document {
     path: MarkdownPath,
     links: Vec<Link>,
-    metadata: HashMap<Yaml, Yaml>,
+    metadata: HashMap<String, Value>,
 }
 
 impl Document {
@@ -35,8 +90,14 @@ impl Document {
         self.links.push(link);
     }
     #[inline]
-    pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) {
-        self.metadata.insert(key, value);
+    pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) -> Result<(), ParseError> {
+        let key = if let Yaml::String(val) = key {
+            Ok(val)
+        } else {
+            Err(ParseError::KeyIsNotString { key: key.into() })
+        }?;
+        self.metadata.insert(key, value.into());
+        Ok(())
     }
 
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
@@ -104,20 +165,21 @@ impl Document {
                                 path: path.clone().path(),
                                 reason: "Top-level is not a mapping".into(),
                             })?;
-                    hash.iter()
-                        .for_each(|(k, v)| document.insert_metadata(k.to_owned(), v.to_owned()));
+                    hash.iter().for_each(|(k, v)| {
+                        _ = document.insert_metadata(k.to_owned(), v.to_owned());
+                    });
                 }
                 _ => {}
             }
         }
 
-        Ok(dbg!(document))
+        Ok(document)
     }
     pub fn has_link_to(&self, path: &MarkdownPath) -> bool {
         self.links.iter().any(|link| link.points_to(path))
     }
     #[inline]
-    pub fn get_metadata(&self, key: String) -> Option<&Yaml> {
-        self.metadata.get(&Yaml::String(key))
+    pub fn get_metadata(&self, key: String) -> Option<&Value> {
+        self.metadata.get(&key)
     }
 }

@@ -1,11 +1,13 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{document::Document, path::MarkdownPath};
 
 /// A collection of notes
+#[derive(Debug, Serialize)]
 pub struct Vault {
     _path: PathBuf,
     documents: HashMap<MarkdownPath, Document>,

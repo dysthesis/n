@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
+use serde::Serialize;
+
 use crate::path::MarkdownPath;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone)]
 /// A link in a Markdown file
 pub struct Link {
     pub _file: MarkdownPath,
@@ -16,7 +18,7 @@ impl Link {
         // If url cannot parse thsi link, it's either broken or points to a local file...
         if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str())
             // ...and if we can parse it as a MarkdownPath, it's probably a markdown path.
-            && let Ok(path) = MarkdownPath::new(target.base_path(), PathBuf::from(self.url.clone()))
+            && let Ok(path) = MarkdownPath::new(target.base(), PathBuf::from(self.url.clone()))
         {
             return &path == target;
         }

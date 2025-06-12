@@ -1,7 +1,9 @@
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use proptest::prelude::*;
+use serde::Serialize;
 use std::{
     ffi::OsStr,
+    fmt::Display,
     fs,
     hash::Hash,
     path::{Path, PathBuf},
@@ -16,15 +18,29 @@ pub enum PathError {
     CanonicalisationFailed { path: PathBuf, reason: String },
 }
 
-#[derive(Debug, Clone, Hash)]
+impl Display for MarkdownPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.canonical_path.to_string_lossy())
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialOrd, Ord)]
 /// A path that is guaranteed to be a Markdown file
 pub struct MarkdownPath {
     /// The path of the directory the document is in
     base_path: PathBuf,
     /// The path to the file
-    path: PathBuf,
+    leaf: PathBuf,
     /// The full path to the document
     canonical_path: PathBuf,
+}
+impl Serialize for MarkdownPath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl Eq for MarkdownPath {}
@@ -42,12 +58,12 @@ impl MarkdownPath {
                 .decode_utf8_lossy()
                 .as_ref()
                 .into();
-            let path: PathBuf = percent_decode_str(path.to_string_lossy().as_ref())
+            let leaf: PathBuf = percent_decode_str(path.to_string_lossy().as_ref())
                 .decode_utf8_lossy()
                 .as_ref()
                 .into();
 
-            let joined_path = base_path.join(&path);
+            let joined_path = base_path.join(&leaf);
             let canonical_path =
                 fs::canonicalize(&joined_path).map_err(|e| PathError::CanonicalisationFailed {
                     path: joined_path,
@@ -55,7 +71,7 @@ impl MarkdownPath {
                 })?;
             Ok(MarkdownPath {
                 base_path,
-                path,
+                leaf,
                 canonical_path,
             })
         } else {
@@ -64,8 +80,12 @@ impl MarkdownPath {
     }
 
     #[inline]
-    pub fn base_path(&self) -> PathBuf {
+    pub fn base(&self) -> PathBuf {
         self.base_path.clone()
+    }
+    #[inline]
+    pub fn leaf(&self) -> PathBuf {
+        self.leaf.clone()
     }
     #[inline]
     pub fn path(&self) -> PathBuf {
@@ -89,7 +109,7 @@ impl MarkdownPath {
             let canonical_path = base_path.join(&path);
             Ok(MarkdownPath {
                 base_path,
-                path,
+                leaf: path,
                 canonical_path,
             })
         } else {
@@ -146,7 +166,7 @@ proptest! {
         encode_base in any::<bool>(),
         encode_leaf in any::<bool>(),
     ) {
-    use std::hash::DefaultHasher;
+        use std::hash::DefaultHasher;
         // Ensure the file is recognisably Markdown.
         let file = PathBuf::from(format!("{stem}.md"));
         // Compose possibly-encoded arguments.

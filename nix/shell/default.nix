@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{pkgs, ...}:
 pkgs.mkShell {
   name = "zk";
 
@@ -12,5 +12,6 @@ pkgs.mkShell {
     bacon
     cargo-bloat
     cargo-audit
+    cargo-expand
   ];
 }
