@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsStr, fmt::Display, fs, path::PathBuf};
+use std::{collections::HashMap, ffi::OsStr, fs, path::PathBuf};
 
 use percent_encoding::percent_decode_str;
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
@@ -14,12 +14,14 @@ pub struct MarkdownPath {
     base_path: PathBuf,
     /// The path to the file
     path: PathBuf,
+    /// The full path to the document
+    canonical_path: PathBuf,
 }
 
 impl Eq for MarkdownPath {}
 impl PartialEq for MarkdownPath {
     fn eq(&self, other: &Self) -> bool {
-        self.canonicalised_path() == other.canonicalised_path()
+        self.path() == other.path()
     }
 }
 
@@ -35,7 +37,18 @@ impl MarkdownPath {
                 .decode_utf8_lossy()
                 .as_ref()
                 .into();
-            Ok(MarkdownPath { base_path, path })
+
+            let joined_path = base_path.join(&path);
+            let canonical_path =
+                fs::canonicalize(&joined_path).map_err(|e| ParseError::CanonicalisationFailed {
+                    path: joined_path,
+                    reason: e.to_string(),
+                })?;
+            Ok(MarkdownPath {
+                base_path,
+                path,
+                canonical_path,
+            })
         } else {
             Err(ParseError::NotMarkdown { path })
         }
@@ -46,23 +59,7 @@ impl MarkdownPath {
     }
     #[inline]
     pub fn path(&self) -> PathBuf {
-        self.path.clone()
-    }
-    #[inline]
-    pub fn canonicalised_path(&self) -> PathBuf {
-        self.base_path().join(self.path())
-    }
-}
-
-impl From<MarkdownPath> for PathBuf {
-    fn from(value: MarkdownPath) -> Self {
-        value.canonicalised_path()
-    }
-}
-
-impl Display for MarkdownPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.canonicalised_path().to_string_lossy())
+        self.canonical_path.clone()
     }
 }
 
@@ -70,6 +67,10 @@ impl Display for MarkdownPath {
 pub enum ParseError {
     #[error("the path `{path}` is not a Markdown file")]
     NotMarkdown { path: PathBuf },
+    #[error("could not canonicalise the path `{path}` because {reason}")]
+    CanonicalisationFailed { path: PathBuf, reason: String },
+    #[error("failed to read file `{path}` because {reason}")]
+    FailedToReadFile { path: PathBuf, reason: String },
     #[error("the frontmatter for the document `{path}` cannot be parsed because {reason}")]
     FrontmatterParseFailed { path: PathBuf, reason: String },
 }
@@ -99,12 +100,19 @@ impl Document {
 
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
         let path = MarkdownPath::new(base_path, path)?;
+
         let mut document = Document {
             path: path.clone(),
             links: Vec::new(),
             metadata: HashMap::new(),
         };
-        let contents = fs::read_to_string(path.canonicalised_path()).unwrap();
+
+        let contents =
+            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
+                path: path.path(),
+                reason: e.to_string(),
+            })?;
+
         let mut options = Options::empty();
         options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
         let mut iter = TextMergeStream::new(Parser::new_ext(&contents, options)).peekable();
@@ -134,20 +142,20 @@ impl Document {
                 ) => {
                     let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
                         .map_err(|e| ParseError::FrontmatterParseFailed {
-                            path: path.clone().into(),
+                            path: path.clone().path(),
                             reason: e.to_string(),
                         })?;
                     let root =
                         parsed
                             .first()
                             .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                path: path.clone().into(),
+                                path: path.clone().path(),
                                 reason: "Cannot get the root of the frontmatter".into(),
                             })?;
                     let hash =
                         root.as_hash()
                             .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                path: path.clone().into(),
+                                path: path.clone().path(),
                                 reason: "Top-level is not a mapping".into(),
                             })?;
                     hash.iter()
