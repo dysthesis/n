@@ -42,7 +42,19 @@ impl Args {
                     vault_dir = PathBuf::from(path);
                 }
                 Short('h') | Long("help") => {
-                    println!("Usage: zk [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH");
+                    let target: Option<String> = parser
+                        .value()
+                        .ok()
+                        .map_or_else(|| None, |res| res.parse::<String>().ok());
+                    let help_text = match target {
+                        Some(val) if val == "subcommands" => {
+                            "Available subcommmands are: inspect, links, backlinks"
+                        }
+                        _ => {
+                            "Usage: zk [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH\n\nTo see the available subcommands, run zk --help subcommands."
+                        }
+                    };
+                    println!("{help_text}");
                     std::process::exit(0);
                 }
                 _ => return Err(arg.unexpected()),
