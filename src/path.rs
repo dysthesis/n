@@ -1,8 +1,11 @@
-use percent_encoding::{
-    AsciiSet, CONTROLS, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode,
-};
+use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use proptest::prelude::*;
-use std::{ffi::OsStr, fs, path::PathBuf};
+use std::{
+    ffi::OsStr,
+    fs,
+    hash::Hash,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -60,7 +63,17 @@ impl MarkdownPath {
         }
     }
 
+    #[inline]
+    pub fn base_path(&self) -> PathBuf {
+        self.base_path.clone()
+    }
+    #[inline]
+    pub fn path(&self) -> PathBuf {
+        self.canonical_path.clone()
+    }
+
     // WARN: For testing purposes only!
+    #[allow(dead_code)]
     fn new_unchecked(base_path: PathBuf, path: PathBuf) -> Result<Self, PathError> {
         if path.extension().and_then(OsStr::to_str) == Some("md") {
             // TODO: Figure out a better way to encapsulate this decoding logic
@@ -83,17 +96,10 @@ impl MarkdownPath {
             Err(PathError::NotMarkdown { path })
         }
     }
-    #[inline]
-    pub fn base_path(&self) -> PathBuf {
-        self.base_path.clone()
-    }
-    #[inline]
-    pub fn path(&self) -> PathBuf {
-        self.canonical_path.clone()
-    }
 }
 
-fn maybe_encode(path: &PathBuf, do_encode: bool) -> PathBuf {
+#[allow(dead_code)]
+fn maybe_encode(path: &Path, do_encode: bool) -> PathBuf {
     if !do_encode {
         return path.to_path_buf();
     }
@@ -104,8 +110,10 @@ fn maybe_encode(path: &PathBuf, do_encode: bool) -> PathBuf {
 }
 
 proptest! {
- #[test]
-    fn markdown_equivalence(
+    #![proptest_config(ProptestConfig::with_cases(100_000))]
+    #[test]
+    /// Given the same base path and leaf, two MarkdownPaths must always be equal
+    fn equivalence(
         // Random directory (can contain separators).
         base in any::<PathBuf>(),
         // Random leaf component w/out separators, then suffixed.
@@ -125,5 +133,30 @@ proptest! {
         let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
 
         prop_assert_eq!(lhs, rhs);
+    }
+    #[test]
+
+    /// Given the same base path and leaf, two MarkdownPaths must always have the same hash
+    fn hash_equivalence(
+        // Random directory (can contain separators).
+        base in any::<PathBuf>(),
+        // Random leaf component w/out separators, then suffixed.
+        stem in proptest::string::string_regex("[A-Za-z0-9_]{1,16}").unwrap(),
+        // Independent toggles.
+        encode_base in any::<bool>(),
+        encode_leaf in any::<bool>(),
+    ) {
+    use std::hash::DefaultHasher;
+        // Ensure the file is recognisably Markdown.
+        let file = PathBuf::from(format!("{stem}.md"));
+        // Compose possibly-encoded arguments.
+        let b1 = maybe_encode(&base, encode_base);
+        let p1 = maybe_encode(&file, encode_leaf);
+
+        // The property under test.
+        let lhs = MarkdownPath::new_unchecked(b1, p1).unwrap();
+        let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
+
+        prop_assert_eq!(lhs.hash(&mut DefaultHasher::new()), rhs.hash(&mut DefaultHasher::new()));
     }
 }
