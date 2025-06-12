@@ -35,5 +35,16 @@ fn main() {
                 println!("{backlinks:?}");
             }
         }
+        Subcommand::Links(path) => {
+            let base_path = args.vault_dir;
+            let full_path = MarkdownPath::new(base_path, path).unwrap();
+            let document = vault.get_document(&full_path).unwrap();
+            let links = document.links();
+            if args.json {
+                println!("{}", serde_json::to_string(&links).unwrap());
+            } else {
+                println!("{links:?}");
+            }
+        }
     }
 }

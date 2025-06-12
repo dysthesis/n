@@ -90,6 +90,10 @@ impl Document {
         self.links.push(link);
     }
     #[inline]
+    pub fn links(&self) -> Vec<Link> {
+        self.links.clone()
+    }
+    #[inline]
     pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) -> Result<(), ParseError> {
         let key = if let Yaml::String(val) = key {
             Ok(val)
