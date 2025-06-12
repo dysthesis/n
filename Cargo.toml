@@ -1,6 +1,7 @@
 [dependencies]
 percent-encoding = "2.3.1"
 pulldown-cmark = {version = "0.13.0", features = ["simd"]}
+rayon = "1.10.0"
 thiserror = "2.0.12"
 url = "2.5.4"
 yaml-rust2 = "0.10.3"

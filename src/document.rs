@@ -7,7 +7,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::link::Link;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 /// A path that is guaranteed to be a Markdown file
 pub struct MarkdownPath {
     /// The path of the directory the document is in
@@ -122,8 +122,8 @@ impl Document {
                     Some(Event::Text(text)),
                 ) => {
                     document.insert_link(Link {
-                        file: path.clone(),
-                        text: text.clone().into_string(),
+                        _file: path.clone(),
+                        _text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
                 }
@@ -161,5 +161,9 @@ impl Document {
     }
     pub fn has_link_to(&self, path: &MarkdownPath) -> bool {
         self.links.iter().any(|link| link.points_to(path))
+    }
+    #[inline]
+    pub fn get_metadata(&self, key: String) -> Option<&Yaml> {
+        self.metadata.get(&Yaml::String(key))
     }
 }

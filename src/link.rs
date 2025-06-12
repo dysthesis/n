@@ -5,8 +5,8 @@ use crate::document::MarkdownPath;
 #[derive(Debug)]
 /// A link in a Markdown file
 pub struct Link {
-    pub file: MarkdownPath,
-    pub text: String,
+    pub _file: MarkdownPath,
+    pub _text: String,
     pub url: String,
 }
 
