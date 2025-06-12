@@ -20,33 +20,19 @@ pub enum PathError {
 
 impl Display for MarkdownPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.canonical_path.to_string_lossy())
+        write!(f, "{}", self.path().to_string_lossy())
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 /// A path that is guaranteed to be a Markdown file
-pub struct MarkdownPath {
-    /// The path of the directory the document is in
-    base_path: PathBuf,
-    /// The path to the file
-    leaf: PathBuf,
-    /// The full path to the document
-    canonical_path: PathBuf,
-}
+pub struct MarkdownPath(PathBuf);
 impl Serialize for MarkdownPath {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl Eq for MarkdownPath {}
-impl PartialEq for MarkdownPath {
-    fn eq(&self, other: &Self) -> bool {
-        self.path() == other.path()
     }
 }
 
@@ -69,27 +55,15 @@ impl MarkdownPath {
                     path: joined_path,
                     reason: e.to_string(),
                 })?;
-            Ok(MarkdownPath {
-                base_path,
-                leaf,
-                canonical_path,
-            })
+            Ok(MarkdownPath(canonical_path))
         } else {
             Err(PathError::NotMarkdown { path })
         }
     }
 
     #[inline]
-    pub fn base(&self) -> PathBuf {
-        self.base_path.clone()
-    }
-    #[inline]
-    pub fn leaf(&self) -> PathBuf {
-        self.leaf.clone()
-    }
-    #[inline]
     pub fn path(&self) -> PathBuf {
-        self.canonical_path.clone()
+        self.0.clone()
     }
 
     // WARN: For testing purposes only!
@@ -107,11 +81,7 @@ impl MarkdownPath {
                 .into();
 
             let canonical_path = base_path.join(&path);
-            Ok(MarkdownPath {
-                base_path,
-                leaf: path,
-                canonical_path,
-            })
+            Ok(MarkdownPath(canonical_path))
         } else {
             Err(PathError::NotMarkdown { path })
         }

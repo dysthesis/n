@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -18,7 +18,7 @@ impl Link {
         // If url cannot parse thsi link, it's either broken or points to a local file...
         if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str())
             // ...and if we can parse it as a MarkdownPath, it's probably a markdown path.
-            && let Ok(path) = MarkdownPath::new(target.base(), PathBuf::from(self.url.clone()))
+            && let Ok(path) = MarkdownPath::new(target.path().parent().unwrap_or_else(|| Path::new("")).to_path_buf(), PathBuf::from(self.url.clone()))
         {
             return &path == target;
         }
