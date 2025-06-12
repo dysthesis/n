@@ -19,12 +19,24 @@ fn main() {
     match args.subcommand {
         Subcommand::Inspect(path) => {
             let base_path = args.vault_dir;
-            let full_path = MarkdownPath::new(base_path, path).unwrap();
-            let document = vault.get_document(&full_path).unwrap();
-            if args.json {
-                println!("{}", serde_json::to_string(document).unwrap());
-            } else {
-                println!("{document}");
+
+            match path {
+                Some(path) => {
+                    let full_path = MarkdownPath::new(base_path, path).unwrap();
+                    let document = vault.get_document(&full_path).unwrap();
+                    if args.json {
+                        println!("{}", serde_json::to_string(document).unwrap());
+                    } else {
+                        println!("{document}");
+                    }
+                }
+                None => {
+                    if args.json {
+                        println!("{}", serde_json::to_string(&vault).unwrap());
+                    } else {
+                        println!("{vault}");
+                    }
+                }
             }
         }
         Subcommand::Backlinks(path) => {

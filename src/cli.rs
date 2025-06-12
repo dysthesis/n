@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Subcommand {
-    Inspect(PathBuf),
+    Inspect(Option<PathBuf>),
     Links(PathBuf),
     Backlinks(PathBuf),
 }
@@ -60,13 +60,16 @@ impl Args {
                 _ => return Err(arg.unexpected()),
             }
         }
-        let constructor = match subcommand.ok_or("missing subcommand")? {
-            val if val == "inspect" => Subcommand::Inspect,
-            val if val == "backlinks" => Subcommand::Backlinks,
-            val if val == "links" => Subcommand::Links,
+        let subcommand = match subcommand.ok_or("missing subcommand")? {
+            val if val == "inspect" => {
+                Subcommand::Inspect(argument.map_or_else(|| None, |val| Some(PathBuf::from(val))))
+            }
+            val if val == "backlinks" => {
+                Subcommand::Backlinks(argument.ok_or("missing argument")?.into())
+            }
+            val if val == "links" => Subcommand::Links(argument.ok_or("missing argument")?.into()),
             _ => todo!(),
         };
-        let subcommand = constructor(argument.ok_or("missing argument")?.into());
 
         Ok(Args {
             subcommand,
