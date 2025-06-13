@@ -5,10 +5,10 @@ This project is a command-line utility for managing Zettelkasten-style notes. It
 ## Roadmap
 
 - [x] Getting links and backlinks to and from a note
-- [ ] Performing queries on frontmatter attributes
+- [x] Performing queries on frontmatter attributes
 - [ ] Creating templates for notes
-- [ ] Updating links upon renaming a note
 - [ ] Providing an LSP
+- [ ] Updating links upon renaming a note
 
 ## Prior art
 
