@@ -12,7 +12,6 @@ use crate::path::MarkdownPath;
 #[derive(Debug, Serialize, Clone)]
 /// A link in a Markdown file
 pub struct Link {
-    pub _file: MarkdownPath,
     pub _text: String,
     pub url: String,
 }

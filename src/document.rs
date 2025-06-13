@@ -162,7 +162,6 @@ impl Document {
                     Some(Event::Text(text)),
                 ) => {
                     document.insert_link(Link {
-                        _file: path.clone(),
                         _text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
