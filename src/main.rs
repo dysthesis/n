@@ -19,6 +19,14 @@ fn main() {
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
     // TODO: Pretty-print the results
     match args.subcommand {
+        Subcommand::Query(query) => {
+            let parsed_query = Query::parse(query.as_str()).unwrap();
+            let results = vault.query(parsed_query);
+            results
+                .par_iter()
+                .filter_map(|doc| doc.get_metadata(&"title".to_string()))
+                .for_each(|title| println!("{title}"));
+        }
         Subcommand::Inspect(path) => {
             let base_path = args.vault_dir;
 
@@ -72,26 +80,4 @@ fn main() {
             }
         }
     }
-
-    // TODO: Remove this testing code
-    println!("Testing query");
-    let query = Query::Or(
-        Box::new(Query::Contains {
-            key: "tags".into(),
-            value: "never".into(),
-        }),
-        Box::new(Query::Contains {
-            key: "title".into(),
-            value: "malloc".into(),
-        }),
-    );
-    let results = vault.query(query);
-    results.iter().for_each(|res| {
-        println!(
-            "{}",
-            res.get_metadata(&"title".to_string())
-                .unwrap_or(&document::Value::String("failed".to_string()))
-        )
-    });
-    println!("Testing query done");
 }

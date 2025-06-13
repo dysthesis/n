@@ -1,5 +1,6 @@
 [dependencies]
 lexopt = "0.3.1"
+nom = "8.0.0"
 owo-colors = "4.2.1"
 percent-encoding = "2.3.1"
 proptest = "1.7.0"
