@@ -1,12 +1,12 @@
 use nom::{
     IResult, Parser,
     branch::alt,
-    bytes::complete::{escaped_transform, is_not, tag, take_while_m_n},
+    bytes::complete::{escaped_transform, is_not, tag, take_while_m_n, take_while1},
     character::{
         complete::{alpha1, char, multispace0, one_of},
         streaming::multispace1,
     },
-    combinator::{cut, map, value},
+    combinator::{cut, map, map_res, value},
     error::{ContextError, context},
     sequence::{delimited, preceded, terminated, tuple},
 };
@@ -48,11 +48,57 @@ impl Query {
             .parse(i)
         }
 
+        fn is_bare_atom_char(c: char) -> bool {
+            !c.is_whitespace() && c != '(' && c != ')'
+        }
+
+        /// Parse an unquoted atom such as foo-bar, 123, @x, ε=mc².
+        fn bare_atom(i: &str) -> IResult<&str, String> {
+            map(take_while1(is_bare_atom_char), str::to_owned).parse(i)
+        }
+
+        fn single_quoted_string(i: &str) -> IResult<&str, String> {
+            delimited(
+                char('\''),
+                escaped_transform(
+                    is_not("'\\"),
+                    '\\',
+                    alt((
+                        value("\\", char('\\')),
+                        value("\'", char('\'')),
+                        value("\n", char('n')),
+                        value("\r", char('r')),
+                        value("\t", char('t')),
+                    )),
+                ),
+                char('\''),
+            )
+            .parse(i)
+        }
+
+        fn double_quoted_string(i: &str) -> IResult<&str, String> {
+            delimited(
+                char('"'),
+                escaped_transform(
+                    is_not("\"\\"),
+                    '\\',
+                    alt((
+                        value("\\", char('\\')),
+                        value("\"", char('"')),
+                        value("\n", char('n')),
+                        value("\r", char('r')),
+                        value("\t", char('t')),
+                    )),
+                ),
+                char('"'),
+            )
+            .parse(i)
+        }
         fn atom(i: &str) -> IResult<&str, String> {
-            alt((
-                map(str_lit, |s: &str| s.to_string()),
-                map(ident, |s: &str| s.to_string()),
-            ))
+            preceded(
+                multispace0,
+                alt((double_quoted_string, single_quoted_string, bare_atom)),
+            )
             .parse(i)
         }
 
