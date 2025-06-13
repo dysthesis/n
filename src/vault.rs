@@ -1,5 +1,6 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
+use owo_colors::OwoColorize;
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
@@ -9,8 +10,23 @@ use crate::{document::Document, path::MarkdownPath};
 /// A collection of notes
 #[derive(Debug, Serialize)]
 pub struct Vault {
-    _path: PathBuf,
+    path: PathBuf,
     documents: HashMap<MarkdownPath, Document>,
+}
+
+impl Display for Vault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let path = self.path().to_string_lossy().underline().bold().to_string();
+        let documents: Vec<String> = self.documents().par_iter().map(|x| x.to_string()).collect();
+        let mut documents = tabled::Table::new(documents);
+        documents.with(tabled::settings::Style::rounded());
+        write!(
+            f,
+            r#"{path}
+{documents}
+        "#
+        )
+    }
 }
 
 #[derive(Debug, Error)]
@@ -22,6 +38,10 @@ pub enum VaultInitialisationError {
 }
 
 impl Vault {
+    #[inline]
+    pub fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
     #[inline]
     pub fn documents(&self) -> Vec<&Document> {
         self.documents.values().collect()
@@ -49,7 +69,7 @@ impl Vault {
             .collect();
 
         Ok(Vault {
-            _path: base_path,
+            path: base_path,
             documents,
         })
     }

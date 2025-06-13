@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
+use owo_colors::OwoColorize;
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
+use tabled::Tabled;
 use thiserror::Error;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -32,13 +34,33 @@ pub enum Value {
     Hash(BTreeMap<Value, Value>),
     Alias(usize),
     Null,
-    BadValue,
+    Bad,
 }
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
-            Self::String(str) => str,
-            _ => todo!(),
+            Value::Real(val) => val,
+            Value::Integer(val) => &val.to_string(),
+            Value::String(val) => val,
+            Value::Boolean(val) => &val.to_string(),
+            Value::Array(values) => {
+                let formatted: Vec<String> = values.par_iter().map(|val| val.to_string()).collect();
+                let mut table = tabled::Table::new(formatted);
+                table.with(tabled::settings::style::Style::rounded());
+                &table.to_string()
+            }
+            Value::Hash(btree_map) => {
+                let formatted: HashMap<String, String> = btree_map
+                    .par_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+                let mut table = tabled::Table::new(formatted);
+                table.with(tabled::settings::style::Style::rounded());
+                &table.to_string()
+            }
+            Value::Alias(val) => &val.to_string(),
+            Value::Null => &"null".dimmed().to_string(),
+            Value::Bad => &"bad value".bright_red().to_string(),
         };
         write!(f, "{display_str}")
     }
@@ -66,7 +88,7 @@ impl From<Yaml> for Value {
             }
             Yaml::Alias(val) => Self::Alias(val),
             Yaml::Null => Self::Null,
-            Yaml::BadValue => Self::BadValue,
+            Yaml::BadValue => Self::Bad,
         }
     }
 }
@@ -88,6 +110,10 @@ impl Document {
     #[inline]
     pub fn insert_link(&mut self, link: Link) {
         self.links.push(link);
+    }
+    #[inline]
+    pub fn links(&self) -> Vec<Link> {
+        self.links.clone()
     }
     #[inline]
     pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) -> Result<(), ParseError> {
@@ -137,7 +163,6 @@ impl Document {
                     Some(Event::Text(text)),
                 ) => {
                     document.insert_link(Link {
-                        _file: path.clone(),
                         _text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
@@ -181,5 +206,54 @@ impl Document {
     #[inline]
     pub fn get_metadata(&self, key: String) -> Option<&Value> {
         self.metadata.get(&key)
+    }
+    #[inline]
+    pub fn metadata(&self) -> HashMap<String, Value> {
+        self.metadata.clone()
+    }
+}
+
+impl Display for Document {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[derive(Tabled)]
+        struct Row {
+            key: String,
+            value: String,
+        }
+
+        // Format metadata into a table
+        let rows: Vec<Row> = self
+            .metadata()
+            .into_iter()
+            .map(|(key, value)| Row {
+                key,
+                value: value.to_string(),
+            })
+            .collect();
+        let mut formatted_metadata = tabled::Table::new(rows);
+        formatted_metadata.with(tabled::settings::Style::rounded());
+
+        // Format links into a table
+        let formatted_links: Vec<String> = self
+            .links()
+            .into_par_iter()
+            .map(|val| val.to_string())
+            .collect();
+
+        let mut formatted_links = tabled::Table::new(formatted_links);
+        formatted_links.with(tabled::settings::style::Style::rounded());
+        let display = format!(
+            r#"{}
+
+Metadata:
+{}
+
+Links:
+{}"#,
+            self.path(),
+            formatted_metadata,
+            formatted_links
+        );
+        write!(f, "{display}")
     }
 }
