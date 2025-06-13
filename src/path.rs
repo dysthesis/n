@@ -96,7 +96,13 @@ fn maybe_encode(path: &Path, do_encode: bool) -> PathBuf {
 
 impl Display for MarkdownPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let display = self.path().to_string_lossy().underline().bold().to_string();
+        let display = self
+            .path()
+            .to_string_lossy()
+            .bright_blue()
+            .underline()
+            .bold()
+            .to_string();
         write!(f, "{display}")
     }
 }

@@ -5,7 +5,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{document::Document, path::MarkdownPath};
+use crate::{document::Document, path::MarkdownPath, query::Query};
 
 /// A collection of notes
 #[derive(Debug, Serialize)]
@@ -84,6 +84,14 @@ impl Vault {
                 }
                 None
             })
+            .collect()
+    }
+
+    pub fn query(&self, query: Query) -> Vec<&Document> {
+        self.documents()
+            .par_iter()
+            .filter(|doc| query.matches(doc))
+            .map(|doc| doc.to_owned())
             .collect()
     }
 }

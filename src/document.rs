@@ -36,6 +36,23 @@ pub enum Value {
     Null,
     Bad,
 }
+
+impl Value {
+    pub fn contains(&self, needle: &str) -> bool {
+        match self {
+            Value::Real(val) | Value::String(val) => val == needle,
+            Value::Integer(n) => needle.parse::<i64>().map(|m| m == *n).unwrap_or(false),
+            Value::Boolean(b) => needle.parse::<bool>().map(|m| m == *b).unwrap_or(false),
+            Value::Alias(idx) => needle.parse::<usize>().map(|m| m == *idx).unwrap_or(false),
+            Value::Array(values) => values.iter().any(|v| v.contains(needle)),
+            Value::Hash(map) => map
+                .iter()
+                .any(|(k, v)| k.contains(needle) || v.contains(needle)),
+            Value::Null | Value::Bad => false,
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
@@ -204,8 +221,8 @@ impl Document {
         self.links.iter().any(|link| link.points_to(path))
     }
     #[inline]
-    pub fn get_metadata(&self, key: String) -> Option<&Value> {
-        self.metadata.get(&key)
+    pub fn get_metadata(&self, key: &String) -> Option<&Value> {
+        self.metadata.get(key)
     }
     #[inline]
     pub fn metadata(&self) -> HashMap<String, Value> {

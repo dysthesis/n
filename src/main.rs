@@ -2,13 +2,15 @@ mod cli;
 mod document;
 mod link;
 mod path;
+mod query;
 mod vault;
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     cli::{Args, Subcommand},
     path::MarkdownPath,
+    query::Query,
     vault::Vault,
 };
 
@@ -70,4 +72,26 @@ fn main() {
             }
         }
     }
+
+    // TODO: Remove this testing code
+    println!("Testing query");
+    let query = Query::Or(
+        Box::new(Query::Contains {
+            key: "tags".into(),
+            value: "never".into(),
+        }),
+        Box::new(Query::Contains {
+            key: "title".into(),
+            value: "malloc".into(),
+        }),
+    );
+    let results = vault.query(query);
+    results.iter().for_each(|res| {
+        println!(
+            "{}",
+            res.get_metadata(&"title".to_string())
+                .unwrap_or(&document::Value::String("failed".to_string()))
+        )
+    });
+    println!("Testing query done");
 }
