@@ -4,6 +4,7 @@ use owo_colors::OwoColorize;
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
+use tabled::Tabled;
 use thiserror::Error;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -214,23 +215,36 @@ impl Document {
 
 impl Display for Document {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let formatted_metadata: HashMap<String, String> = self
-            .metadata()
-            .into_par_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
-        let mut formatted_metadata = tabled::Table::new(formatted_metadata);
-        formatted_metadata.with(tabled::settings::style::Style::rounded());
+        #[derive(Tabled)]
+        struct Row {
+            key: String,
+            value: String,
+        }
 
+        // Format metadata into a table
+        let rows: Vec<Row> = self
+            .metadata()
+            .into_iter()
+            .map(|(key, value)| Row {
+                key,
+                value: value.to_string(),
+            })
+            .collect();
+        let mut formatted_metadata = tabled::Table::new(rows);
+        formatted_metadata.with(tabled::settings::Style::rounded());
+
+        // Format links into a table
         let formatted_links: Vec<String> = self
             .links()
             .into_par_iter()
             .map(|val| val.to_string())
             .collect();
+
         let mut formatted_links = tabled::Table::new(formatted_links);
         formatted_links.with(tabled::settings::style::Style::rounded());
         let display = format!(
             r#"{}
+
 Metadata:
 {}
 

@@ -7,7 +7,7 @@ use owo_colors::OwoColorize;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
 
-use crate::path::MarkdownPath;
+use crate::{path::MarkdownPath, vault::Vault};
 
 #[derive(Debug, Serialize, Clone)]
 /// A link in a Markdown file
@@ -22,11 +22,16 @@ impl Link {
         // If url cannot parse thsi link, it's either broken or points to a local file...
         if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str())
             // ...and if we can parse it as a MarkdownPath, it's probably a markdown path.
-            && let Ok(path) = MarkdownPath::new(target.path().parent().unwrap_or_else(|| Path::new("")).to_path_buf(), PathBuf::from(self.url.clone()))
+            && let Some(path) = self.to_markdown_path(target.path().parent().unwrap_or_else(|| Path::new("")).to_path_buf())
         {
             return &path == target;
         }
         false
+    }
+
+    #[inline]
+    pub fn to_markdown_path(&self, base_path: PathBuf) -> Option<MarkdownPath> {
+        MarkdownPath::new(base_path, PathBuf::from(self.url.clone())).ok()
     }
 }
 

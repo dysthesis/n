@@ -30,6 +30,7 @@ fn main() {
                         println!("{document}");
                     }
                 }
+                // Print out the whole vault if no arguments are provided
                 None => {
                     if args.json {
                         println!("{}", serde_json::to_string(&vault).unwrap());
