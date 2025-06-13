@@ -1,14 +1,14 @@
 use nom::{
     IResult, Parser,
     branch::alt,
-    bytes::complete::{escaped_transform, is_not, tag, take_while_m_n, take_while1},
+    bytes::complete::{escaped_transform, is_not, tag, take_while1},
     character::{
-        complete::{alpha1, char, multispace0, one_of},
+        complete::{char, multispace0},
         streaming::multispace1,
     },
-    combinator::{cut, map, map_res, value},
+    combinator::{cut, map, value},
     error::{ContextError, context},
-    sequence::{delimited, preceded, terminated, tuple},
+    sequence::{delimited, preceded, terminated},
 };
 
 use crate::document::Document;
@@ -35,19 +35,6 @@ impl Query {
         }
     }
     pub fn parse(input: &str) -> Result<Query, nom::error::Error<&str>> {
-        fn ident(i: &str) -> IResult<&str, &str> {
-            context("identifier", preceded(multispace0, alpha1)).parse(i)
-        }
-
-        fn str_lit(i: &str) -> IResult<&str, &str> {
-            delimited(
-                preceded(multispace0, char('"')),
-                context("string", cut(is_not("\""))),
-                char('"'),
-            )
-            .parse(i)
-        }
-
         fn is_bare_atom_char(c: char) -> bool {
             !c.is_whitespace() && c != '(' && c != ')'
         }
@@ -120,7 +107,7 @@ impl Query {
             let inner = map(
                 preceded(
                     terminated(tag("contains"), multispace1),
-                    cut(tuple((atom, preceded(multispace1, atom)))),
+                    cut((atom, preceded(multispace1, atom))),
                 ),
                 |(key, value)| Query::Contains { key, value },
             );
@@ -144,7 +131,7 @@ impl Query {
                 let inner = map(
                     preceded(
                         terminated(tag(name), multispace1),
-                        cut(tuple((parse_query, preceded(multispace1, parse_query)))),
+                        cut((parse_query, preceded(multispace1, parse_query))),
                     ),
                     |(lhs, rhs)| ctor(Box::new(lhs), Box::new(rhs)),
                 );

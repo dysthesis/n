@@ -7,7 +7,7 @@ use owo_colors::OwoColorize;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
 
-use crate::{path::MarkdownPath, vault::Vault};
+use crate::path::MarkdownPath;
 
 #[derive(Debug, Serialize, Clone)]
 /// A link in a Markdown file
