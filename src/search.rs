@@ -32,11 +32,14 @@ impl Search {
     pub const B: f32 = 0.75;
 
     pub fn new(query: String) -> Self {
+        let query = query.to_lowercase();
         Search(query)
     }
 
+    // TODO: Figure out better lexing
     pub fn frequency(term: &str, document: &str) -> usize {
         document
+            .to_lowercase()
             .split_whitespace()
             .par_bridge()
             .filter(|word| word == &term)
@@ -44,16 +47,17 @@ impl Search {
     }
 
     pub fn average_length(documents: Vec<String>) -> f32 {
-        let length = documents.len();
+        let length = documents.len() as f32;
         let sum = documents
             .par_iter()
             .map(|document| document.split_whitespace().count())
-            .reduce(|| 0, |a, b| a + b);
-        (length / sum) as f32
+            .reduce(|| 0, |a, b| a + b) as f32;
+        length / sum
     }
 
     pub fn contains(term: &str, document: &str) -> bool {
         document
+            .to_lowercase()
             .split_whitespace()
             .par_bridge()
             .any(|word| word == term)
