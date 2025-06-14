@@ -13,7 +13,7 @@ use crate::{
     document::Document,
     path::MarkdownPath,
     query::Query,
-    search::Search,
+    search::Corpus,
     vault::Vault,
 };
 
@@ -26,7 +26,7 @@ fn main() {
     match args.subcommand {
         Subcommand::Search(query) => {
             let mut res: Vec<(Document, f32)> = vault
-                .search(Search::new(query))
+                .search(query)
                 .into_par_iter()
                 .filter(|(_, score)| score > &0f32)
                 .collect();

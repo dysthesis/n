@@ -1,4 +1,9 @@
-use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
+use std::collections::{HashMap, HashSet};
+
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
+};
+use serde::Serialize;
 
 /// We use the BM25 algorithm to search for the given query in the vault.
 ///
@@ -25,68 +30,69 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 /// 0.75.
 ///
 /// Because I don't know what's going on here, I'll just randomly choose k_1 as 1.6.
-pub struct Search(String);
+#[derive(Serialize, Debug)]
+pub struct Corpus {
+    docs: Vec<String>,
+    avgdl: f32,
+    idf: HashMap<String, f32>,
+}
 
-impl Search {
+impl Corpus {
     pub const K1: f32 = 1.6;
     pub const B: f32 = 0.75;
 
-    pub fn new(query: String) -> Self {
-        let query = query.to_lowercase();
-        Search(query)
-    }
-
-    // TODO: Figure out better lexing
-    pub fn frequency(term: &str, document: &str) -> usize {
-        document
-            .to_lowercase()
-            .split_whitespace()
-            .par_bridge()
-            .filter(|word| word == &term)
-            .count()
-    }
-
-    pub fn average_length(documents: Vec<String>) -> f32 {
-        let length = documents.len() as f32;
-        let sum = documents
+    pub fn new(docs: Vec<String>) -> Self {
+        let avgdl = docs
+            .iter()
+            .map(|doc| doc.split_whitespace().count() as f32)
+            .sum::<f32>()
+            / docs.len() as f32;
+        let df = docs
             .par_iter()
-            .map(|document| document.split_whitespace().count())
-            .reduce(|| 0, |a, b| a + b) as f32;
-        length / sum
+            .flat_map(|doc| {
+                doc.split_whitespace()
+                    .map(str::to_ascii_lowercase)
+                    .collect::<HashSet<_>>()
+            })
+            .fold(HashMap::new, |mut acc: HashMap<String, f32>, curr| {
+                *acc.entry(curr).or_default() += 1f32;
+                acc
+            })
+            .reduce(HashMap::new, |mut a, b| {
+                b.iter().for_each(|(k, v)| {
+                    *a.entry(k.to_string()).or_default() += v;
+                });
+                a
+            });
+
+        let idf = df
+            .into_iter()
+            .map(|(term, num_occurrence)| {
+                let num_docs = docs.len() as f32;
+                let num_occurrence = num_occurrence as f32;
+                let idf = ((num_docs - num_occurrence + 0.5 / (num_occurrence + 0.5)) + 1.0).ln();
+                (term, idf)
+            })
+            .collect();
+        Self { docs, avgdl, idf }
     }
 
-    pub fn contains(term: &str, document: &str) -> bool {
-        document
-            .to_lowercase()
+    pub fn score(&self, query: &str, document: &str) -> f32 {
+        let dl = document.split_whitespace().count() as f32;
+        let norm = Self::K1 * (1f32 - Self::B + Self::B * dl / self.avgdl);
+        let tf: HashMap<&str, usize> = document.split_whitespace().fold(
+            HashMap::new(),
+            |mut m: HashMap<&str, usize>, term| {
+                *m.entry(term).or_default() += 1;
+                m
+            },
+        );
+        query
             .split_whitespace()
-            .par_bridge()
-            .any(|word| word == term)
-    }
-
-    pub fn inverse_document_frequency(term: &str, documents: Vec<String>) -> f32 {
-        // How many documents contain `term`
-        let num_contains = documents
-            .par_iter()
-            .filter(|doc| Search::contains(term, doc))
-            .count() as f32;
-        (((documents.len() as f32 - num_contains + 0.5) / (num_contains + 0.5)) + 1f32).ln()
-    }
-
-    // TODO: See if there are any possible overflows due to the typecasting
-    pub fn score(&self, document: &str, documents: Vec<String>) -> f32 {
-        let avgdl = Search::average_length(documents.clone());
-        self.0
-            // Separate the query into terms
-            .split_whitespace()
-            .par_bridge()
             .map(|term| {
-                let idf = Search::inverse_document_frequency(term, documents.clone());
-                let frequency: f32 = Search::frequency(term, document) as f32;
-
-                idf * ((frequency * (Self::K1 + 1f32))
-                    / (frequency
-                        + (Self::K1
-                            * (1f32 - Self::B + (Self::B * (documents.len() as f32 / avgdl))))))
+                let frequency = *tf.get(term).unwrap_or(&0) as f32;
+                let idf = *self.idf.get(term).unwrap_or(&0f32);
+                idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
             })
             .sum()
     }
