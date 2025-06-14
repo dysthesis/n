@@ -31,6 +31,10 @@ impl Search {
     pub const K1: f32 = 1.6;
     pub const B: f32 = 0.75;
 
+    pub fn new(query: String) -> Self {
+        Search(query)
+    }
+
     pub fn frequency(term: &str, document: &str) -> usize {
         document
             .split_whitespace()
@@ -39,7 +43,7 @@ impl Search {
             .count()
     }
 
-    pub fn average_length(documents: Vec<&str>) -> f32 {
+    pub fn average_length(documents: Vec<String>) -> f32 {
         let length = documents.len();
         let sum = documents
             .par_iter()
@@ -55,7 +59,7 @@ impl Search {
             .any(|word| word == term)
     }
 
-    pub fn inverse_document_frequency(term: &str, documents: Vec<&str>) -> f32 {
+    pub fn inverse_document_frequency(term: &str, documents: Vec<String>) -> f32 {
         // How many documents contain `term`
         let num_contains = documents
             .par_iter()
@@ -65,7 +69,7 @@ impl Search {
     }
 
     // TODO: See if there are any possible overflows due to the typecasting
-    pub fn score(&self, document: &str, documents: Vec<&str>) -> f32 {
+    pub fn score(&self, document: &str, documents: Vec<String>) -> f32 {
         let avgdl = Search::average_length(documents.clone());
         self.0
             // Separate the query into terms

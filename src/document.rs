@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
 use owo_colors::OwoColorize;
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
+};
 use serde::Serialize;
 use tabled::Tabled;
 use thiserror::Error;
@@ -141,6 +143,52 @@ impl Document {
         }?;
         self.metadata.insert(key, value.into());
         Ok(())
+    }
+
+    pub fn stripped(&self) -> Result<String, ParseError> {
+        let mut res = String::new();
+        let path = &self.path;
+        let contents =
+            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
+                path: path.path(),
+                reason: e.to_string(),
+            })?;
+
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+        options.insert(Options::ENABLE_FOOTNOTES);
+        options.insert(Options::ENABLE_MATH);
+        let mut iter = TextMergeStream::new(Parser::new_ext(&contents, options));
+
+        while let Some(event) = iter.next() {
+            match event {
+                Event::Text(t) => res.push_str(t.to_string().as_str()),
+                Event::SoftBreak => res.push(' '),
+                Event::HardBreak | Event::Rule => res.push('\n'),
+                // Skip unwanted events
+                Event::Start(
+                    Tag::MetadataBlock(_)
+                    | Tag::Superscript
+                    | Tag::Subscript
+                    | Tag::FootnoteDefinition(_)
+                    | Tag::CodeBlock(_)
+                    | Tag::Table(_)
+                    | Tag::Image {
+                        link_type: _,
+                        dest_url: _,
+                        title: _,
+                        id: _,
+                    },
+                ) => {
+                    while let Some(event) = iter.next()
+                        && !matches!(event, Event::End(_))
+                    {}
+                }
+                _ => {}
+            }
+        }
+
+        Ok(res)
     }
 
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {

@@ -6,6 +6,7 @@ pub enum Subcommand {
     Links(PathBuf),
     Backlinks(PathBuf),
     Query(String),
+    Search(String),
 }
 
 /// Parsed ommand-line arguments
@@ -66,6 +67,7 @@ impl Args {
                 Subcommand::Inspect(argument.map_or_else(|| None, |val| Some(PathBuf::from(val))))
             }
             val if val == "query" => Subcommand::Query(argument.ok_or("missing argument")?),
+            val if val == "search" => Subcommand::Search(argument.ok_or("missing argument")?),
             val if val == "backlinks" => {
                 Subcommand::Backlinks(argument.ok_or("missing argument")?.into())
             }

@@ -5,7 +5,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{document::Document, path::MarkdownPath, query::Query};
+use crate::{document::Document, path::MarkdownPath, query::Query, search::Search};
 
 /// A collection of notes
 #[derive(Debug, Serialize)]
@@ -38,6 +38,25 @@ pub enum VaultInitialisationError {
 }
 
 impl Vault {
+    pub fn search(&self, query: Search) -> HashMap<MarkdownPath, f32> {
+        let documents = &self.documents;
+        documents
+            .par_iter()
+            .map(|(path, doc)| {
+                (
+                    path,
+                    query.score(
+                        &doc.stripped().unwrap(),
+                        documents
+                            .values()
+                            .map(|val| val.stripped().unwrap())
+                            .collect(),
+                    ),
+                )
+            })
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect()
+    }
     #[inline]
     pub fn path(&self) -> PathBuf {
         self.path.clone()

@@ -12,6 +12,7 @@ use crate::{
     cli::{Args, Subcommand},
     path::MarkdownPath,
     query::Query,
+    search::Search,
     vault::Vault,
 };
 
@@ -20,6 +21,13 @@ fn main() {
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
     // TODO: Pretty-print the results
     match args.subcommand {
+        Subcommand::Search(query) => {
+            vault
+                .search(Search::new(query))
+                .iter()
+                .filter(|(_, score)| score > &&0f32)
+                .for_each(|(path, score)| println!("{score} {path}"));
+        }
         Subcommand::Query(query) => {
             let parsed_query = Query::parse(query.as_str()).unwrap();
             let results = vault.query(parsed_query);
