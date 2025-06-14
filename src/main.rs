@@ -3,6 +3,7 @@ mod document;
 mod link;
 mod path;
 mod query;
+mod search;
 mod vault;
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
