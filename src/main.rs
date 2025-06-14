@@ -116,11 +116,16 @@ fn main() {
             }
         }
         Subcommand::List => {
-            let res: Vec<(&Document, f32)> = vault
+            let mut res: Vec<(Document, f32)> = vault
                 .documents()
-                .par_iter()
-                .filter_map(|doc| vault.rank(&doc.path()).map(|rank| (doc.to_owned(), rank)))
+                .into_iter()
+                .zip(vault.rank(1000, 0.00001))
+                .map(|(k, v)| (k.to_owned(), v))
                 .collect();
+            res.sort_unstable_by(|a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
+            });
+
             if args.json {
                 println!("{}", serde_json::to_string(&res).unwrap());
             } else {

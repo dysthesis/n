@@ -1,7 +1,10 @@
 use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use owo_colors::OwoColorize;
-use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelBridge,
+    ParallelIterator,
+};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -39,8 +42,6 @@ pub enum VaultInitialisationError {
 }
 
 impl Vault {
-    /// The dampening factor of PageRank
-    pub const D: f32 = 0.85;
     #[inline]
     pub fn path(&self) -> PathBuf {
         self.path.clone()
@@ -48,30 +49,6 @@ impl Vault {
     #[inline]
     pub fn documents(&self) -> Vec<&Document> {
         self.documents.values().collect()
-    }
-
-    /// Rank the vault using the PageRank algoritm, where the ranking of a page `A` is given by
-    ///
-    /// PR(A) = (1 - d) + d * (PR(T_1)/C(T_1) + ... + PR(T_n) / C(T_n)),
-    ///
-    /// where
-    ///
-    /// - `d` is the dampening factor,
-    /// - `T_1` to `T_n` are pages with links to `A`, and
-    /// - C(A) is the number of links going out of `A`.
-    pub fn rank(&self, document: &MarkdownPath) -> Option<f32> {
-        let backlinks = self.find_backlinks(document);
-        let rank: f32 = (1f32 - Self::D)
-            + (Self::D
-                * backlinks
-                    .par_iter()
-                    .filter_map(|link| {
-                        let rank = self.rank(link)?;
-                        let num_links = self.get_document(link)?.links().len() as f32;
-                        Some(rank / num_links)
-                    })
-                    .sum::<f32>());
-        Some(rank)
     }
 
     #[inline]
@@ -108,6 +85,82 @@ impl Vault {
             documents,
             corpus,
         })
+    }
+
+    /// The dampening factor of PageRank
+    pub const D: f32 = 0.85;
+
+    /// Rank the vault using the PageRank algoritm, where the ranking of a page `A` is given by
+    ///
+    /// PR(A) = (1 - d) + d * (PR(T_1)/C(T_1) + ... + PR(T_n) / C(T_n)),
+    ///
+    /// where
+    ///
+    /// - `d` is the dampening factor,
+    /// - `T_1` to `T_n` are pages with links to `A`, and
+    /// - C(A) is the number of links going out of `A`.
+    ///
+    /// Since this can cause quite a bit of function calls and result in a stack overflow when done
+    /// recursively, we imlpement it iteratively
+    ///
+    /// References:
+    ///
+    /// - https://research.google/pubs/the-anatomy-of-a-large-scale-hypertextual-web-search-engine/
+    /// - https://cs.brown.edu/courses/cs016/static/files/assignments/projects/GraphHelpSession.pdf
+    /// - https://web.stanford.edu/class/cs315b/assignment3.html
+    /// - https://pi.math.cornell.edu/~mec/Winter2009/RalucaRemus/Lecture3/lecture3.html
+    pub fn rank(&self, num_iter: usize, tol: f32) -> Vec<f32> {
+        let docs = self.documents();
+        let n = docs.len();
+        let teleport = (1.0 - Self::D) / n as f32;
+
+        let idx: HashMap<MarkdownPath, usize> = docs
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.path(), i))
+            .collect();
+
+        let mut inbound: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut outdeg: Vec<usize> = vec![0; n];
+
+        for (src, doc) in docs.iter().enumerate() {
+            for link in doc.links() {
+                if let Some(target) = link.to_markdown_path(self.path())
+                    && let Some(&dst) = idx.get(&target)
+                {
+                    inbound[dst].push(src);
+                    outdeg[src] += 1;
+                }
+            }
+        }
+
+        let mut rank = vec![1.0 / n as f32; n];
+        for _ in 0..num_iter {
+            let dangling_mass: f32 = rank
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| outdeg[*i] == 0)
+                .map(|(_, r)| *r)
+                .sum();
+
+            let base = teleport + Self::D * dangling_mass / n as f32;
+            let mut next = vec![base; n];
+
+            next.par_iter_mut().enumerate().for_each(|(dst, val)| {
+                let contrib: f32 = inbound[dst]
+                    .iter()
+                    .map(|&src| rank[src] / outdeg[src] as f32)
+                    .sum();
+                *val += Self::D * contrib;
+            });
+
+            let delta: f32 = rank.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
+            rank = next;
+            if delta < tol {
+                break;
+            }
+        }
+        rank
     }
 
     pub fn search(&self, query: String) -> HashMap<Document, f32> {

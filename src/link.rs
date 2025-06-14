@@ -19,11 +19,13 @@ pub struct Link {
 impl Link {
     /// Check if the link points to the given Markdown document
     pub fn points_to(&self, target: &MarkdownPath) -> bool {
-        // If url cannot parse thsi link, it's either broken or points to a local file...
-        if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str())
-            // ...and if we can parse it as a MarkdownPath, it's probably a markdown path.
-            && let Some(path) = self.to_markdown_path(target.path().parent().unwrap_or_else(|| Path::new("")).to_path_buf())
-        {
+        if let Some(path) = self.to_markdown_path(
+            target
+                .path()
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_path_buf(),
+        ) {
             return &path == target;
         }
         false
@@ -31,7 +33,11 @@ impl Link {
 
     #[inline]
     pub fn to_markdown_path(&self, base_path: PathBuf) -> Option<MarkdownPath> {
-        MarkdownPath::new(base_path, PathBuf::from(self.url.clone())).ok()
+        if let Err(url::ParseError::RelativeUrlWithoutBase) = url::Url::parse(self.url.as_str()) {
+            MarkdownPath::new(base_path, PathBuf::from(self.url.clone())).ok()
+        } else {
+            None
+        }
     }
 }
 

@@ -3,6 +3,7 @@ lexopt = "0.3.1"
 nom = "8.0.0"
 owo-colors = "4.2.1"
 percent-encoding = "2.3.1"
+petgraph = { version = "0.8.2", features = ["serde-1", "rayon"] }
 proptest = "1.7.0"
 pulldown-cmark = {version = "0.13.0", features = ["simd"]}
 rayon = "1.10.0"
