@@ -39,6 +39,8 @@ pub enum VaultInitialisationError {
 }
 
 impl Vault {
+    /// The dampening factor of PageRank
+    pub const D: f32 = 0.85;
     #[inline]
     pub fn path(&self) -> PathBuf {
         self.path.clone()
@@ -47,6 +49,33 @@ impl Vault {
     pub fn documents(&self) -> Vec<&Document> {
         self.documents.values().collect()
     }
+
+    /// Rank the vault using the PageRank algoritm, where the ranking of a page `A` is given by
+    ///
+    /// PR(A) = (1 - d) + d * (PR(T_1)/C(T_1) + ... + PR(T_n) / C(T_n)),
+    ///
+    /// where
+    ///
+    /// - `d` is the dampening factor,
+    /// - `T_1` to `T_n` are pages with links to `A`, and
+    /// - C(A) is the number of links going out of `A`.
+    pub fn rank(&self, document: &MarkdownPath) -> Option<f32> {
+        let backlinks = self.find_backlinks(document);
+        let document = self.get_document(document)?;
+        let num_links = document.links().len() as f32;
+        let rank: f32 = (1f32 - Self::D)
+            + (Self::D
+                * backlinks
+                    .par_iter()
+                    .filter_map(|link| {
+                        let rank = self.rank(link)?;
+                        let num_links = self.get_document(link)?.links().len() as f32;
+                        Some(rank / num_links)
+                    })
+                    .sum::<f32>());
+        Some(0f32)
+    }
+
     #[inline]
     pub fn get_document(&self, path: &MarkdownPath) -> Option<&Document> {
         self.documents.get(path)
