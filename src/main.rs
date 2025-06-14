@@ -23,6 +23,8 @@ pub const MAX_RESULTS: usize = 10;
 fn main() {
     let args = Args::parse().unwrap();
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
+    const MAX_ITER: usize = 100_000;
+    const TOLERANCE: f32 = 0.0000001;
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Search(query) => {
@@ -34,7 +36,7 @@ fn main() {
             let rank: HashMap<Document, f32> = vault
                 .documents()
                 .into_iter()
-                .zip(vault.rank(100, 0.00001))
+                .zip(vault.rank(MAX_ITER, TOLERANCE))
                 .map(|(k, v)| (k.clone(), v))
                 .collect();
 
@@ -142,7 +144,7 @@ fn main() {
             let mut res: Vec<(Document, f32)> = vault
                 .documents()
                 .into_iter()
-                .zip(vault.rank(1000, 0.00001))
+                .zip(vault.rank(MAX_ITER, TOLERANCE))
                 .map(|(k, v)| (k.to_owned(), v))
                 .collect();
             res.sort_unstable_by(|a, b| {
