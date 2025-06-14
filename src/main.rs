@@ -16,6 +16,8 @@ use crate::{
     vault::Vault,
 };
 
+pub const MAX_RESULTS: usize = 10;
+
 fn main() {
     let args = Args::parse().unwrap();
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
@@ -37,8 +39,9 @@ fn main() {
             res.sort_unstable_by(|a, b| {
                 b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
             });
+            res.truncate(MAX_RESULTS);
             let mut builder = tabled::builder::Builder::new();
-            builder.push_record(["Path", "Score"]);
+            builder.push_record(["Title", "Score"]);
             res.iter()
                 .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
             let mut table = builder.build();
