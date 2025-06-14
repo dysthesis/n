@@ -226,7 +226,7 @@ impl Document {
                     Some(Event::Text(text)),
                 ) => {
                     document.insert_link(Link {
-                        _text: text.clone().into_string(),
+                        text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
                 }
