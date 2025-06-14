@@ -82,6 +82,7 @@ impl Corpus {
         Self { docs, avgdl, idf }
     }
 
+    /// Calculate the BM25 score of a `document` given the `query`
     pub fn score(&self, query: &str, document: &str) -> f32 {
         let dl = document.split_whitespace().count() as f32;
         let norm = Self::K1 * (1f32 - Self::B + Self::B * dl / self.avgdl);
