@@ -5,13 +5,14 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{document::Document, path::MarkdownPath, query::Query};
+use crate::{document::Document, path::MarkdownPath, query::Query, search::Corpus};
 
 /// A collection of notes
 #[derive(Debug, Serialize)]
 pub struct Vault {
     path: PathBuf,
     documents: HashMap<MarkdownPath, Document>,
+    corpus: Corpus,
 }
 
 impl Display for Vault {
@@ -51,7 +52,7 @@ impl Vault {
         self.documents.get(path)
     }
     pub fn new(base_path: PathBuf) -> Result<Self, VaultInitialisationError> {
-        let documents = base_path
+        let documents: HashMap<MarkdownPath, Document> = base_path
             .read_dir()
             .map_err(|reason| VaultInitialisationError::ReadDirFailed {
                 path: base_path.clone(),
@@ -68,12 +69,34 @@ impl Vault {
             .map(|document| (document.path(), document))
             .collect();
 
+        let corpus = Corpus::new(
+            documents
+                .par_iter()
+                .map(|(_, doc)| doc.stripped().unwrap())
+                .collect(),
+        );
+
         Ok(Vault {
             path: base_path,
             documents,
+            corpus,
         })
     }
 
+    pub fn search(&self, query: String) -> HashMap<Document, f32> {
+        let documents = &self.documents;
+        documents
+            .par_iter()
+            .map(|(_, doc)| {
+                (
+                    doc,
+                    self.corpus
+                        .score(query.as_str(), doc.stripped().unwrap().as_str()),
+                )
+            })
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect()
+    }
     /// Get the list of documents which references the given document
     pub fn find_backlinks(&self, path: &MarkdownPath) -> Vec<MarkdownPath> {
         self.documents

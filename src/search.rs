@@ -1,0 +1,97 @@
+use std::collections::{HashMap, HashSet};
+
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use serde::Serialize;
+
+/// We use the BM25 algorithm to search for the given query in the vault.
+///
+/// From Wikipedia:
+///
+/// Given a query Q containing keywords q_1 to q_n, the BM25 score of a document D is
+///
+/// score(D, Q) = sum of IDF(q_i) * (f(q_i, D) * (k_1 + 1)) / (f(q_i, D) + k_1 * (1 - b + b * (|D|/avgdl))) for i = 1..n,
+///
+/// where
+///
+/// - f(q_i, D) is how often the term q_i appears in document D,
+/// - avgdl is the average document length in the list of documents,
+/// - and IDF(q_i) is the inverse document frequency, defined as
+///
+/// IDF(q_i) = ln((N - n(q_i) + 0.5) / (n(q_i) + 0.5) + 1),
+///
+/// where
+///
+/// - N is the total number of notes in the vault, and
+/// - n(q_i) is the total number of documents containing q_i
+///
+/// k_1 and b are optimisation parameters, with the usual values being k_1 in [1.2, 2.0] and b =
+/// 0.75.
+///
+/// Because I don't know what's going on here, I'll just randomly choose k_1 as 1.6.
+#[derive(Serialize, Debug)]
+pub struct Corpus {
+    docs: Vec<String>,
+    avgdl: f32,
+    idf: HashMap<String, f32>,
+}
+
+impl Corpus {
+    pub const K1: f32 = 1.6;
+    pub const B: f32 = 0.75;
+
+    pub fn new(docs: Vec<String>) -> Self {
+        let avgdl = docs
+            .iter()
+            .map(|doc| doc.split_whitespace().count() as f32)
+            .sum::<f32>()
+            / docs.len() as f32;
+        let df = docs
+            .par_iter()
+            .flat_map(|doc| {
+                doc.split_whitespace()
+                    .map(str::to_ascii_lowercase)
+                    .collect::<HashSet<_>>()
+            })
+            .fold(HashMap::new, |mut acc: HashMap<String, f32>, curr| {
+                *acc.entry(curr).or_default() += 1f32;
+                acc
+            })
+            .reduce(HashMap::new, |mut a, b| {
+                b.iter().for_each(|(k, v)| {
+                    *a.entry(k.to_string()).or_default() += v;
+                });
+                a
+            });
+
+        let idf = df
+            .into_iter()
+            .map(|(term, num_occurrence)| {
+                let num_docs = docs.len() as f32;
+                let idf = ((num_docs - num_occurrence + 0.5 / (num_occurrence + 0.5)) + 1.0).ln();
+                (term, idf)
+            })
+            .collect();
+        Self { docs, avgdl, idf }
+    }
+
+    // TODO: See if there are any possible overflows due to the typecasting
+    pub fn score(&self, query: &str, document: &str) -> f32 {
+        let dl = document.split_whitespace().count() as f32;
+        let norm = Self::K1 * (1f32 - Self::B + Self::B * dl / self.avgdl);
+        let tf: HashMap<&str, usize> = document.split_whitespace().fold(
+            HashMap::new(),
+            |mut m: HashMap<&str, usize>, term| {
+                *m.entry(term).or_default() += 1;
+                m
+            },
+        );
+        query
+            .split_whitespace()
+            .map(|term| {
+                let frequency = *tf.get(term).unwrap_or(&0) as f32;
+                let idf = *self.idf.get(term).unwrap_or(&0f32);
+                idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
+            })
+            .sum()
+    }
+}

@@ -9,10 +9,10 @@ use serde::Serialize;
 
 use crate::path::MarkdownPath;
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Hash, PartialEq, Eq)]
 /// A link in a Markdown file
 pub struct Link {
-    pub _text: String,
+    pub text: String,
     pub url: String,
 }
 

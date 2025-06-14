@@ -3,22 +3,58 @@ mod document;
 mod link;
 mod path;
 mod query;
+mod search;
 mod vault;
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     cli::{Args, Subcommand},
+    document::Document,
     path::MarkdownPath,
     query::Query,
     vault::Vault,
 };
+
+pub const MAX_RESULTS: usize = 10;
 
 fn main() {
     let args = Args::parse().unwrap();
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
     // TODO: Pretty-print the results
     match args.subcommand {
+        Subcommand::Search(query) => {
+            let mut res: Vec<(Document, f32)> = vault
+                .search(query)
+                .into_par_iter()
+                .filter(|(_, score)| score > &0f32)
+                .collect();
+            res.sort_unstable_by(|a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
+            });
+            res.truncate(MAX_RESULTS);
+            if args.json {
+                println!("{}", serde_json::to_string(&res).unwrap());
+            } else {
+                let res: Vec<(String, f32)> = res
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k.get_metadata(&"title".to_string())
+                                .map_or_else(|| "".to_string(), |res| res.to_string()),
+                            v,
+                        )
+                    })
+                    .collect();
+                let mut builder = tabled::builder::Builder::new();
+                builder.push_record(["Title", "Score"]);
+                res.iter()
+                    .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
+                let mut table = builder.build();
+                table.with(tabled::settings::style::Style::rounded());
+                println!("{table}");
+            }
+        }
         Subcommand::Query(query) => {
             let parsed_query = Query::parse(query.as_str()).unwrap();
             let results = vault.query(parsed_query);

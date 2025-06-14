@@ -112,7 +112,7 @@ impl From<Yaml> for Value {
 
 /// A single Markdown document
 /// TODO: Implement metadata parsing
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Hash, PartialEq, Eq)]
 pub struct Document {
     path: MarkdownPath,
     links: Vec<Link>,
@@ -141,6 +141,52 @@ impl Document {
         }?;
         self.metadata.insert(key, value.into());
         Ok(())
+    }
+
+    pub fn stripped(&self) -> Result<String, ParseError> {
+        let mut res = String::new();
+        let path = &self.path;
+        let contents =
+            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
+                path: path.path(),
+                reason: e.to_string(),
+            })?;
+
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+        options.insert(Options::ENABLE_FOOTNOTES);
+        options.insert(Options::ENABLE_MATH);
+        let mut iter = TextMergeStream::new(Parser::new_ext(&contents, options));
+
+        while let Some(event) = iter.next() {
+            match event {
+                Event::Text(t) => res.push_str(t.to_string().as_str()),
+                Event::SoftBreak => res.push(' '),
+                Event::HardBreak | Event::Rule => res.push('\n'),
+                // Skip unwanted events
+                Event::Start(
+                    Tag::MetadataBlock(_)
+                    | Tag::Superscript
+                    | Tag::Subscript
+                    | Tag::FootnoteDefinition(_)
+                    | Tag::CodeBlock(_)
+                    | Tag::Table(_)
+                    | Tag::Image {
+                        link_type: _,
+                        dest_url: _,
+                        title: _,
+                        id: _,
+                    },
+                ) => {
+                    while let Some(event) = iter.next()
+                        && !matches!(event, Event::End(_))
+                    {}
+                }
+                _ => {}
+            }
+        }
+
+        Ok(res)
     }
 
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
@@ -180,7 +226,7 @@ impl Document {
                     Some(Event::Text(text)),
                 ) => {
                     document.insert_link(Link {
-                        _text: text.clone().into_string(),
+                        text: text.clone().into_string(),
                         url: dest_url.into_string(),
                     });
                 }
