@@ -115,5 +115,33 @@ fn main() {
                 println!("{links:?}");
             }
         }
+        Subcommand::List => {
+            let res: Vec<(&Document, f32)> = vault
+                .documents()
+                .par_iter()
+                .filter_map(|doc| vault.rank(&doc.path()).map(|rank| (doc.to_owned(), rank)))
+                .collect();
+            if args.json {
+                println!("{}", serde_json::to_string(&res).unwrap());
+            } else {
+                let res: Vec<(String, f32)> = res
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k.get_metadata(&"title".to_string())
+                                .map_or_else(|| "".to_string(), |res| res.to_string()),
+                            v,
+                        )
+                    })
+                    .collect();
+                let mut builder = tabled::builder::Builder::new();
+                builder.push_record(["Title", "Score"]);
+                res.iter()
+                    .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
+                let mut table = builder.build();
+                table.with(tabled::settings::style::Style::rounded());
+                println!("{table}");
+            }
+        }
     }
 }

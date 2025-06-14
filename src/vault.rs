@@ -61,8 +61,6 @@ impl Vault {
     /// - C(A) is the number of links going out of `A`.
     pub fn rank(&self, document: &MarkdownPath) -> Option<f32> {
         let backlinks = self.find_backlinks(document);
-        let document = self.get_document(document)?;
-        let num_links = document.links().len() as f32;
         let rank: f32 = (1f32 - Self::D)
             + (Self::D
                 * backlinks
@@ -73,7 +71,7 @@ impl Vault {
                         Some(rank / num_links)
                     })
                     .sum::<f32>());
-        Some(0f32)
+        Some(rank)
     }
 
     #[inline]
