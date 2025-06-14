@@ -2,9 +2,7 @@ use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
 use owo_colors::OwoColorize;
 use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
-use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 use tabled::Tabled;
 use thiserror::Error;

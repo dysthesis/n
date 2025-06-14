@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
-};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 
 /// We use the BM25 algorithm to search for the given query in the vault.
@@ -69,7 +67,6 @@ impl Corpus {
             .into_iter()
             .map(|(term, num_occurrence)| {
                 let num_docs = docs.len() as f32;
-                let num_occurrence = num_occurrence as f32;
                 let idf = ((num_docs - num_occurrence + 0.5 / (num_occurrence + 0.5)) + 1.0).ln();
                 (term, idf)
             })
@@ -77,6 +74,7 @@ impl Corpus {
         Self { docs, avgdl, idf }
     }
 
+    // TODO: See if there are any possible overflows due to the typecasting
     pub fn score(&self, query: &str, document: &str) -> f32 {
         let dl = document.split_whitespace().count() as f32;
         let norm = Self::K1 * (1f32 - Self::B + Self::B * dl / self.avgdl);

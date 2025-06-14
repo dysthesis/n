@@ -13,7 +13,6 @@ use crate::{
     document::Document,
     path::MarkdownPath,
     query::Query,
-    search::Corpus,
     vault::Vault,
 };
 
