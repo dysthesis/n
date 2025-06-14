@@ -6,6 +6,8 @@ mod query;
 mod search;
 mod vault;
 
+use std::collections::HashMap;
+
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
@@ -24,11 +26,30 @@ fn main() {
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Search(query) => {
-            let mut res: Vec<(Document, f32)> = vault
+            let res: Vec<(Document, f32)> = vault
                 .search(query)
                 .into_par_iter()
                 .filter(|(_, score)| score > &0f32)
                 .collect();
+            let rank: HashMap<Document, f32> = vault
+                .documents()
+                .into_iter()
+                .zip(vault.rank(100, 0.00001))
+                .map(|(k, v)| (k.clone(), v))
+                .collect();
+
+            let factor = 0.5f32;
+
+            let mut res: Vec<(Document, f32)> = res
+                .into_iter()
+                .map(|(doc, score)| {
+                    (
+                        doc.clone(),
+                        (factor * score) + ((1f32 - factor) * rank.get(&doc).unwrap()),
+                    )
+                })
+                .collect();
+
             res.sort_unstable_by(|a, b| {
                 b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
             });
