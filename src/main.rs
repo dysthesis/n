@@ -22,16 +22,28 @@ fn main() {
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Search(query) => {
-            let mut res: Vec<(MarkdownPath, f32)> = vault
+            let mut res: Vec<(String, f32)> = vault
                 .search(Search::new(query))
                 .into_par_iter()
-                .filter(|(_, score)| score > &&0f32)
+                .filter(|(_, score)| score > &0f32)
+                .map(|(k, v)| {
+                    (
+                        k.get_metadata(&"title".to_string())
+                            .map_or_else(|| "".to_string(), |res| res.to_string()),
+                        v,
+                    )
+                })
                 .collect();
             res.sort_unstable_by(|a, b| {
                 b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
             });
+            let mut builder = tabled::builder::Builder::new();
+            builder.push_record(["Path", "Score"]);
             res.iter()
-                .for_each(|(path, score)| println!("{score} {path}"));
+                .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
+            let mut table = builder.build();
+            table.with(tabled::settings::style::Style::rounded());
+            println!("{table}");
         }
         Subcommand::Query(query) => {
             let parsed_query = Query::parse(query.as_str()).unwrap();

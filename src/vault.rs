@@ -38,13 +38,13 @@ pub enum VaultInitialisationError {
 }
 
 impl Vault {
-    pub fn search(&self, query: Search) -> HashMap<MarkdownPath, f32> {
+    pub fn search(&self, query: Search) -> HashMap<Document, f32> {
         let documents = &self.documents;
         documents
             .par_iter()
-            .map(|(path, doc)| {
+            .map(|(_, doc)| {
                 (
-                    path,
+                    doc,
                     query.score(
                         &doc.stripped().unwrap(),
                         documents

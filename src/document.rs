@@ -114,7 +114,7 @@ impl From<Yaml> for Value {
 
 /// A single Markdown document
 /// TODO: Implement metadata parsing
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Hash, PartialEq, Eq)]
 pub struct Document {
     path: MarkdownPath,
     links: Vec<Link>,
