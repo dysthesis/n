@@ -38,8 +38,10 @@ fn main() {
                 .map(|(k, v)| (k.clone(), v))
                 .collect();
 
-            let factor = 0.5f32;
+            // How much should the BM25 score count over the PageRank score?
+            let factor = 0.7f32;
 
+            // Adjust the score to incorporate the pagerank score
             let mut res: Vec<(Document, f32)> = res
                 .into_iter()
                 .map(|(doc, score)| {
