@@ -3,6 +3,7 @@ mod document;
 mod link;
 mod path;
 mod query;
+mod rank;
 mod search;
 mod vault;
 
@@ -16,6 +17,7 @@ use crate::{
     document::Document,
     path::MarkdownPath,
     query::Query,
+    rank::rank,
     vault::Vault,
 };
 
@@ -35,13 +37,16 @@ fn main() {
                 // We don't care about documents with no matches.
                 .filter(|(_, score)| score > &0f32)
                 .collect();
+            let matches: Vec<&Document> = bm25.iter().map(|(doc, _)| doc).collect();
 
-            let rank: HashMap<Document, f32> = vault
-                .documents()
-                .into_iter()
-                .zip(vault.rank(MAX_ITER, TOLERANCE))
-                .map(|(k, v)| (k.clone(), v))
+            let rank: HashMap<Document, f32> = matches
+                .iter()
+                .zip(rank(matches.clone(), vault.path(), MAX_ITER, TOLERANCE))
+                .map(|(k, v)| ((**k).clone(), v))
                 .collect();
+
+            println!("{rank:?}");
+            println!("{bm25:?}");
 
             // How much should the BM25 score count over the PageRank score?
             let factor = 0.7f32;
@@ -171,7 +176,7 @@ fn main() {
             let mut res: Vec<(Document, f32)> = vault
                 .documents()
                 .into_iter()
-                .zip(vault.rank(MAX_ITER, TOLERANCE))
+                .zip(rank(vault.documents(), vault.path(), MAX_ITER, TOLERANCE))
                 .map(|(k, v)| (k.to_owned(), v))
                 .collect();
             res.sort_unstable_by(|a, b| {
