@@ -4,8 +4,7 @@
   lib,
   inputs,
   ...
-}:
-rec {
+}: rec {
   default = zk;
   zk = pkgs.callPackage ./zk.nix {
     inherit
@@ -15,4 +14,6 @@ rec {
       self
       ;
   };
+
+  zks = pkgs.callPackage ./zks.nix {inherit zk;};
 }
