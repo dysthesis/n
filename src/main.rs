@@ -14,6 +14,9 @@ use std::collections::HashMap;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
+
 use crate::{
     cli::{Args, Subcommand},
     document::Document,
@@ -35,6 +38,15 @@ async fn main() {
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Lsp => {
+            // Set up logging
+            let subscriber = FmtSubscriber::builder()
+                .with_max_level(Level::TRACE)
+                .finish();
+
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("setting default subscriber failed");
+
+            // Initialise the LSP backend
             Backend::run().await;
         }
         Subcommand::New { template, path } => {
