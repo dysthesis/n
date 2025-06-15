@@ -1,3 +1,6 @@
 /target
 .direnv
 proptest-regressions/
+core
+result
+out
