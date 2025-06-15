@@ -160,7 +160,7 @@ impl Document {
 
         while let Some(event) = iter.next() {
             match event {
-                Event::Text(t) => res.push_str(t.to_string().as_str()),
+                Event::Text(t) => res.push_str(format!("{t} ").as_str()),
                 Event::SoftBreak => res.push(' '),
                 Event::HardBreak | Event::Rule => res.push('\n'),
                 // Skip unwanted events
