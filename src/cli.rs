@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
+
+use crate::template::Template;
 
 #[derive(Debug)]
 pub enum Subcommand {
@@ -8,6 +10,7 @@ pub enum Subcommand {
     Query(String),
     Search(String),
     List,
+    New { template: Template, path: String },
 }
 
 /// Parsed ommand-line arguments
@@ -29,6 +32,8 @@ impl Args {
         let mut parser = lexopt::Parser::from_env();
         let mut json = false;
         let mut vault_dir = std::env::current_dir().unwrap();
+        let mut variables = None;
+        let mut template_file = None;
         while let Some(arg) = parser.next()? {
             match arg {
                 Value(val) if subcommand.is_none() => {
@@ -44,6 +49,12 @@ impl Args {
                     let path = parser.value()?.parse::<String>()?.to_string();
                     vault_dir = PathBuf::from(path);
                 }
+                Short('v') | Long("variables") => {
+                    variables = Some(parser.value()?.parse::<String>()?.to_string());
+                }
+                Short('t') | Long("template-file") => {
+                    template_file = Some(parser.value()?.parse::<String>()?.to_string());
+                }
                 Short('h') | Long("help") => {
                     let target: Option<String> = parser
                         .value()
@@ -54,7 +65,7 @@ impl Args {
                             "Available subcommmands are: inspect, links, backlinks"
                         }
                         _ => {
-                            "Usage: zk [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH\n\nTo see the available subcommands, run zk --help subcommands."
+                            "Usage: n [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH\n\nTo see the available subcommands, run zk --help subcommands."
                         }
                     };
                     println!("{help_text}");
@@ -74,6 +85,13 @@ impl Args {
                 Subcommand::Backlinks(argument.ok_or("missing argument")?.into())
             }
             val if val == "links" => Subcommand::Links(argument.ok_or("missing argument")?.into()),
+            val if val == "new" => {
+                let template =
+                    fs::read_to_string::<String>(template_file.ok_or("missing argument")?).unwrap();
+                let path = argument.ok_or("missing argument")?.into();
+                let template = Template::new(template, variables);
+                Subcommand::New { template, path }
+            }
             _ => todo!(),
         };
 

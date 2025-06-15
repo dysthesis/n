@@ -1,10 +1,7 @@
 use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use owo_colors::OwoColorize;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelBridge,
-    ParallelIterator,
-};
+use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 

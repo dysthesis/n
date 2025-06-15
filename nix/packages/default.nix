@@ -5,8 +5,8 @@
   inputs,
   ...
 }: rec {
-  default = zk;
-  zk = pkgs.callPackage ./zk.nix {
+  default = n;
+  n = pkgs.callPackage ./n.nix {
     inherit
       pkgs
       inputs
@@ -15,5 +15,6 @@
       ;
   };
 
-  zks = pkgs.callPackage ./zks.nix {inherit zk;};
+  ns = pkgs.callPackage ./ns.nix {inherit n;};
+  nn = pkgs.callPackage ./nn.nix {inherit n;};
 }

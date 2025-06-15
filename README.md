@@ -1,4 +1,4 @@
-# zk - a command-line Zettelkasten bookkeeping utility
+# n - a command-line notetaking utility
 
 This project is a command-line utility for managing Zettelkasten-style notes. It is intended primarily for personal use
 
@@ -9,7 +9,7 @@ This project is a command-line utility for managing Zettelkasten-style notes. It
 - [x] Perform full-text search
   - **Note:** The lexing of notes probably still needs to be improved.
 - [x] Calculate the "importance" of a note based on Katz centrality or PageRank
-- [ ] Creating templates for notes
+- [x] Creating templates for notes
 - [ ] Providing an LSP
 - [ ] Updating links upon renaming a note
 
@@ -17,7 +17,7 @@ This project is a command-line utility for managing Zettelkasten-style notes. It
 
 ### Searching for a note
 
-`zk` can be used in conjunction with `jq` and `fzf` (or other fuzzy finders of your choice) to perform a full-text search on the notes, sorted in order of relevance (based on string similarity) and importance (based on PageRank).
+`n` can be used in conjunction with `jq` and `fzf` (or other fuzzy finders of your choice) to perform a full-text search on the notes, sorted in order of relevance (based on string similarity) and importance (based on PageRank).
 
 ```bash
 #!/usr/bin/env bash

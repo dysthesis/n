@@ -7,7 +7,7 @@
   rustNightly = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default);
 in
   rustPlatform.buildRustPackage rec {
-    name = "zk";
+    name = "n";
     version = "0.1.0";
 
     nativeBuildInputs = [
@@ -19,5 +19,5 @@ in
 
     src = ../../.;
     cargoLock.lockFile = "${src}/Cargo.lock";
-    meta.mainProgram = "zk";
+    meta.mainProgram = "n";
   }
