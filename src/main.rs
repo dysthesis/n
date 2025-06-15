@@ -31,6 +31,10 @@ fn main() {
     const TOLERANCE: f32 = 0.0000001;
     // TODO: Pretty-print the results
     match args.subcommand {
+        Subcommand::New { template, path } => {
+            let path = vault.path().join(format!("{path}.md"));
+            template.write(path).unwrap()
+        }
         Subcommand::Search(query) => {
             let bm25: Vec<(Document, f32)> = vault
                 .search(query)
