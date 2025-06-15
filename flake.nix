@@ -20,65 +20,64 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs =
-    inputs@{
-      self,
-      babel,
-      nixpkgs,
-      treefmt-nix,
-      rust-overlay,
-      ...
-    }:
-    let
-      inherit (builtins) mapAttrs;
-      inherit (babel) mkLib;
-      lib = mkLib nixpkgs;
+  outputs = inputs @ {
+    self,
+    babel,
+    nixpkgs,
+    treefmt-nix,
+    rust-overlay,
+    ...
+  }: let
+    inherit (builtins) mapAttrs;
+    inherit (babel) mkLib;
+    lib = mkLib nixpkgs;
 
-      # Systems to support
-      systems = [
-        "aarch64-linux"
-        "x86_64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
+    # Systems to support
+    systems = [
+      "aarch64-linux"
+      "x86_64-linux"
+      "x86_64-darwin"
+      "aarch64-darwin"
+    ];
 
-      overlays = [
-        rust-overlay.overlays.default
-        (final: _prev: {
-          rustToolchains = {
-            stable = final.rust-bin.stable.latest.default.override {
-              extensions = [
-                "rust-src"
-                "rust-analyzer"
-                "llvm-tools"
-              ];
-            };
-            nightly = final.rust-bin.nightly.latest.default.override {
-              extensions = [
-                "rust-src"
-                "rust-analyzer"
-                "miri"
-              ];
-            };
+    overlays = [
+      rust-overlay.overlays.default
+      (final: _prev: {
+        rustToolchains = {
+          stable = final.rust-bin.stable.latest.default.override {
+            extensions = [
+              "rust-src"
+              "rust-analyzer"
+              "llvm-tools"
+              "llvm-tools-preview"
+            ];
           };
-        })
-      ];
+          nightly = final.rust-bin.nightly.latest.default.override {
+            extensions = [
+              "rust-src"
+              "rust-analyzer"
+              "miri"
+              "llvm-tools-preview"
+            ];
+          };
+        };
+      })
+    ];
 
-      forAllSystems = lib.babel.forAllSystems { inherit systems overlays; };
+    forAllSystems = lib.babel.forAllSystems {inherit systems overlays;};
 
-      treefmt = forAllSystems (pkgs: treefmt-nix.lib.evalModule pkgs ./nix/formatters);
-    in
+    treefmt = forAllSystems (pkgs: treefmt-nix.lib.evalModule pkgs ./nix/formatters);
+  in
     # Budget flake-parts
     mapAttrs (_: val: forAllSystems val) {
-      devShells = pkgs: { default = import ./nix/shell { inherit pkgs self; }; };
+      devShells = pkgs: {default = import ./nix/shell {inherit pkgs self;};};
       # for `nix fmt`
       formatter = pkgs: treefmt.${pkgs.system}.config.build.wrapper;
       # for `nix flake check`
       checks = pkgs: {
         formatting = treefmt.${pkgs.system}.config.build.check self;
       };
-      packages =
-        pkgs:
+      packages = pkgs:
         import ./nix/packages {
           inherit
             self

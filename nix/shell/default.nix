@@ -17,8 +17,10 @@ pkgs.mkShell {
       bacon
       cargo-bloat
       cargo-audit
+      cargo-pgo
       cargo-expand
-      cargo-cargo-unused-features
+      cargo-unused-features
+      bolt_20
     ]
     ++ (with self.packages.${pkgs.system}; [
       n
