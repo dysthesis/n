@@ -114,8 +114,9 @@ impl Corpus {
         query
             .split_whitespace()
             .map(|term| {
-                let frequency = *tf.get(term).unwrap_or(&0) as f32;
-                let idf = *self.idf.get(term).unwrap_or(&0f32);
+                let term = stemmer.stem(term).to_string();
+                let frequency = *tf.get(term.as_str()).unwrap_or(&0) as f32;
+                let idf = *self.idf.get(term.as_str()).unwrap_or(&0f32);
                 idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
             })
             .sum()
