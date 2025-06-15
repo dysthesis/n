@@ -376,6 +376,7 @@ dependencies = [
  "lazy_static",
  "lexopt",
  "nom 8.0.0",
+ "once_cell",
  "owo-colors",
  "percent-encoding",
  "proptest",

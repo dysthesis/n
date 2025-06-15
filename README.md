@@ -17,7 +17,7 @@ This project is a command-line utility for managing Zettelkasten-style notes. It
 
 ### Searching for a note
 
-`zk` can be used in conjunction with `jq` and `fzf` (or other fuzzy finders of your choice) to perform a full-text search on the notes, sorted in order of relevance (based on string similarity) and importance (based on PageRank).
+`n` can be used in conjunction with `jq` and `fzf` (or other fuzzy finders of your choice) to perform a full-text search on the notes, sorted in order of relevance (based on string similarity) and importance (based on PageRank).
 
 ```bash
 #!/usr/bin/env bash
