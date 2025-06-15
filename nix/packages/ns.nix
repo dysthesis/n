@@ -13,6 +13,7 @@ in
   writeShellScriptBin "ns" ''
     SHELL="${getExe bash}"
     EDITOR_CMD="''${EDITOR:-${getExe vim}}"
+    NOTES_DIR="''${NOTES_DIR:-$HOME/Documents/Notes/Contents}"
 
     if   [ "$(tput colors)" -ge 256 ];  then SCORE_CLR="$(tput setaf 244)"
     elif [ "$(tput colors)" -ge 16 ];   then SCORE_CLR="$(tput setaf 8)"
@@ -28,7 +29,7 @@ in
     }
     export -f preview
 
-    ${getExe n} -d ~/Documents/Notes/Contents --json search "$@" |
+    ${getExe n} -d "$NOTES_DIR" --json search "$@" |
     ${getExe jq} -r '
       .[]
       | [
