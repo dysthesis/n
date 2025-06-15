@@ -3,7 +3,7 @@ use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{InitializeParams, InitializeResult, InitializedParams, MessageType},
 };
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
 #[derive(Debug)]
 pub struct Backend {
