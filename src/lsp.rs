@@ -3,7 +3,7 @@ use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{InitializeParams, InitializeResult, InitializedParams, MessageType},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct Backend {
@@ -29,7 +29,7 @@ impl LanguageServer for Backend {
 
 impl Backend {
     pub async fn run() {
-        info!("Initialising LSP backend for n...");
+        trace!("Initialising LSP backend for n...");
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
 
@@ -38,6 +38,6 @@ impl Backend {
 
         Server::new(stdin, stdout, socket).serve(service).await;
 
-        info!("Terminated LSP backend!");
+        warn!("Terminated LSP backend!");
     }
 }
