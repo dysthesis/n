@@ -1,7 +1,10 @@
 use tower_lsp::{
     Client, LanguageServer, LspService, Server,
     jsonrpc::Result,
-    lsp_types::{InitializeParams, InitializeResult, InitializedParams, MessageType},
+    lsp_types::{
+        CompletionParams, CompletionResponse, InitializeParams, InitializeResult,
+        InitializedParams, MessageType,
+    },
 };
 use tracing::{info, trace, warn};
 
@@ -24,6 +27,10 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        todo!()
     }
 }
 

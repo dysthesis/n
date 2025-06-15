@@ -10,6 +10,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::{link::Link, path::MarkdownPath};
 
+// See if there are any better solutions, and whether we want to use it in the first place.
 type HashMap<K, V> = BTreeMap<K, V>;
 
 #[derive(Error, Debug)]

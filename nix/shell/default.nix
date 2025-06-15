@@ -6,8 +6,7 @@
 pkgs.mkShell {
   name = "n";
 
-  packages =
-    with pkgs;
+  packages = with pkgs;
     [
       nixd
       alejandra
@@ -19,6 +18,7 @@ pkgs.mkShell {
       cargo-bloat
       cargo-audit
       cargo-expand
+      cargo-cargo-unused-features
     ]
     ++ (with self.packages.${pkgs.system}; [
       n
