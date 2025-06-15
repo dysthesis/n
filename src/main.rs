@@ -33,7 +33,8 @@ fn main() {
     match args.subcommand {
         Subcommand::New { template, path } => {
             let path = vault.path().join(format!("{path}.md"));
-            template.write(path).unwrap()
+            template.write(&path).unwrap();
+            println!("{}", path.to_string_lossy());
         }
         Subcommand::Search(query) => {
             let bm25: Vec<(Document, f32)> = vault

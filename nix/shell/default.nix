@@ -22,5 +22,6 @@ pkgs.mkShell {
     ++ (with self.packages.${pkgs.system}; [
       n
       ns
+      nn
     ]);
 }

@@ -16,4 +16,5 @@
   };
 
   ns = pkgs.callPackage ./ns.nix {inherit n;};
+  nn = pkgs.callPackage ./nn.nix {inherit n;};
 }

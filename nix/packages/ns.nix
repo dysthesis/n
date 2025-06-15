@@ -12,7 +12,7 @@
 in
   writeShellScriptBin "ns" ''
     SHELL="${getExe bash}"
-    EDITOR_CMD="''${EDITOR:-${getExe vim}}"
+    EDITOR="''${EDITOR:-${getExe vim}}"
     NOTES_DIR="''${NOTES_DIR:-$HOME/Documents/Notes/Contents}"
 
     if   [ "$(tput colors)" -ge 256 ];  then SCORE_CLR="$(tput setaf 244)"
@@ -45,5 +45,5 @@ in
         --prompt='Search results ❯ ' \
         --preview 'bash -c "$(declare -f preview); preview {3}"' \
         --preview-window=right:75%:wrap \
-        --bind "enter:execute($EDITOR_CMD \$(echo {} | cut -f3) > /dev/tty)+abort"
+        --bind "enter:execute($EDITOR \$(echo {} | cut -f3) > /dev/tty)+abort"
   ''

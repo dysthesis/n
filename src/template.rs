@@ -22,7 +22,7 @@ impl Template {
             .map(|pair| {
                 let splitted: Vec<&str> = pair.split(":").collect();
                 (
-                    splitted.get(0).unwrap().to_string(),
+                    splitted.first().unwrap().to_string(),
                     splitted.get(1).unwrap().to_string(),
                 )
             })
@@ -49,7 +49,7 @@ impl Template {
     }
 
     /// Write the rendered result to the given file name
-    pub fn write(&self, path: PathBuf) -> io::Result<()> {
+    pub fn write(&self, path: &PathBuf) -> io::Result<()> {
         fs::write(path, self.render())
     }
 }
