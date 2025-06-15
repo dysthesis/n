@@ -5,6 +5,7 @@ mod path;
 mod query;
 mod rank;
 mod search;
+mod template;
 mod vault;
 
 use std::collections::HashMap;

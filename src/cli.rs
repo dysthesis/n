@@ -54,7 +54,7 @@ impl Args {
                             "Available subcommmands are: inspect, links, backlinks"
                         }
                         _ => {
-                            "Usage: zk [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH\n\nTo see the available subcommands, run zk --help subcommands."
+                            "Usage: n [-j|--json] [-d|--vault-dir=DIR] SUBCOMMAND PATH\n\nTo see the available subcommands, run zk --help subcommands."
                         }
                     };
                     println!("{help_text}");

@@ -1,4 +1,4 @@
-# zk - a command-line Zettelkasten bookkeeping utility
+# n - a command-line notetaking utility
 
 This project is a command-line utility for managing Zettelkasten-style notes. It is intended primarily for personal use
 

@@ -4,7 +4,7 @@
   ...
 }:
 pkgs.mkShell {
-  name = "zk";
+  name = "n";
 
   packages = with pkgs;
     [
@@ -20,7 +20,7 @@ pkgs.mkShell {
       cargo-expand
     ]
     ++ (with self.packages.${pkgs.system}; [
-      zk
-      zks
+      n
+      ns
     ]);
 }
