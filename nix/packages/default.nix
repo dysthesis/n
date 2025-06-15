@@ -4,7 +4,8 @@
   lib,
   inputs,
   ...
-}: rec {
+}:
+rec {
   default = n;
   n = pkgs.callPackage ./n.nix {
     inherit
@@ -15,6 +16,6 @@
       ;
   };
 
-  ns = pkgs.callPackage ./ns.nix {inherit n;};
-  nn = pkgs.callPackage ./nn.nix {inherit n;};
+  ns = pkgs.callPackage ./ns.nix { inherit n; };
+  nn = pkgs.callPackage ./nn.nix { inherit n; };
 }

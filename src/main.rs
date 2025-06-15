@@ -1,6 +1,7 @@
 mod cli;
 mod document;
 mod link;
+mod lsp;
 mod path;
 mod query;
 mod rank;
@@ -16,6 +17,7 @@ use serde::Serialize;
 use crate::{
     cli::{Args, Subcommand},
     document::Document,
+    lsp::Backend,
     path::MarkdownPath,
     query::Query,
     rank::rank,
@@ -24,13 +26,17 @@ use crate::{
 
 pub const MAX_RESULTS: usize = 10;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse().unwrap();
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
     const MAX_ITER: usize = 100_000;
     const TOLERANCE: f32 = 0.0000001;
     // TODO: Pretty-print the results
     match args.subcommand {
+        Subcommand::Lsp => {
+            Backend::run().await;
+        }
         Subcommand::New { template, path } => {
             let path = vault.path().join(format!("{path}.md"));
             template.write(&path).unwrap();
