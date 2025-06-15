@@ -9,9 +9,11 @@ use serde::Serialize;
 ///
 /// Given a query Q containing keywords q_1 to q_n, the BM25 score of a document D is
 ///
-/// score(D, Q) = sum of IDF(q_i) * (f(q_i, D) * (k_1 + 1)) / (f(q_i, D) + k_1 * (1 - b + b * (|D|/avgdl))) for i = 1..n,
+/// score(D, Q) = sum of IDF(q_i)
+///                 * (f(q_i, D) * (k_1 + 1))
+///                     / (f(q_i, D) + k_1 * (1 - b + b * (|D| / avgdl)))
 ///
-/// where
+/// for i = 1..n, where
 ///
 /// - f(q_i, D) is how often the term q_i appears in document D,
 /// - avgdl is the average document length in the list of documents,
@@ -26,6 +28,11 @@ use serde::Serialize;
 ///
 /// k_1 and b are optimisation parameters, with the usual values being k_1 in [1.2, 2.0] and b =
 /// 0.75.
+///
+/// References:
+///
+/// - https://en.wikipedia.org/wiki/Okapi_BM25
+/// - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
 #[derive(Serialize, Debug)]
 pub struct Corpus {
     docs: Vec<String>,
@@ -84,8 +91,8 @@ impl Corpus {
 
     /// Calculate the BM25 score of a `document` given the `query`
     pub fn score(&self, query: &str, document: &str) -> f32 {
-        let dl = document.split_whitespace().count() as f32;
-        let norm = Self::K1 * (1f32 - Self::B + Self::B * dl / self.avgdl);
+        let document_length = document.split_whitespace().count() as f32;
+        let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / self.avgdl);
 
         // Find out how many times each term shows up in the given document
         let tf: HashMap<&str, usize> = document.split_whitespace().fold(
