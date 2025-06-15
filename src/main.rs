@@ -45,9 +45,6 @@ fn main() {
                 .map(|(k, v)| ((**k).clone(), v))
                 .collect();
 
-            println!("{rank:?}");
-            println!("{bm25:?}");
-
             // How much should the BM25 score count over the PageRank score?
             let factor = 0.7f32;
 
