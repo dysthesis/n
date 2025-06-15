@@ -45,5 +45,5 @@ in
         --prompt='Search results ❯ ' \
         --preview 'bash -c "$(declare -f preview); preview {3}"' \
         --preview-window=right:75%:wrap \
-        --bind "enter:execute($EDITOR \$(echo {} | cut -f3) > /dev/tty)+abort"
+        --bind "enter:execute($EDITOR "{3}" > /dev/tty)+abort"
   ''
