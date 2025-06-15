@@ -8,6 +8,7 @@ This project is a command-line utility for managing Zettelkasten-style notes. It
 - [x] Performing queries on frontmatter attributes
 - [x] Perform full-text search
   - **Note:** The lexing of notes probably still needs to be improved.
+  - [ ] Perform lemmatization
 - [x] Calculate the "importance" of a note based on Katz centrality or PageRank
 - [x] Creating templates for notes
 - [ ] Providing an LSP
