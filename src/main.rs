@@ -3,16 +3,21 @@ mod document;
 mod link;
 mod path;
 mod query;
+mod rank;
 mod search;
 mod vault;
 
+use std::collections::HashMap;
+
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use serde::Serialize;
 
 use crate::{
     cli::{Args, Subcommand},
     document::Document,
     path::MarkdownPath,
     query::Query,
+    rank::rank,
     vault::Vault,
 };
 
@@ -21,35 +26,84 @@ pub const MAX_RESULTS: usize = 10;
 fn main() {
     let args = Args::parse().unwrap();
     let vault = Vault::new(args.vault_dir.clone()).unwrap();
+    const MAX_ITER: usize = 100_000;
+    const TOLERANCE: f32 = 0.0000001;
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Search(query) => {
-            let mut res: Vec<(Document, f32)> = vault
+            let bm25: Vec<(Document, f32)> = vault
                 .search(query)
                 .into_par_iter()
+                // We don't care about documents with no matches.
                 .filter(|(_, score)| score > &0f32)
                 .collect();
+            let matches: Vec<&Document> = bm25.iter().map(|(doc, _)| doc).collect();
+
+            let rank: HashMap<Document, f32> = matches
+                .iter()
+                .zip(rank(matches.clone(), vault.path(), MAX_ITER, TOLERANCE))
+                .map(|(k, v)| ((**k).clone(), v))
+                .collect();
+
+            // How much should the BM25 score count over the PageRank score?
+            let factor = 0.7f32;
+
+            #[derive(Serialize)]
+            /// Label the results in the JSON output
+            struct SearchResult {
+                document: Document,
+                bm25: f32,
+                rank: f32,
+                combined: f32,
+            }
+
+            // Adjust the score to incorporate the pagerank score
+            let mut res: Vec<SearchResult> = bm25
+                .into_iter()
+                .map(|(doc, bm25)| {
+                    let rank = rank.get(&doc).unwrap();
+                    SearchResult {
+                        document: doc.clone(),
+                        bm25,
+                        rank: rank.to_owned(),
+                        combined: (factor * bm25) + ((1f32 - factor) * rank),
+                    }
+                })
+                .collect();
+
             res.sort_unstable_by(|a, b| {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
+                b.combined
+                    .partial_cmp(&a.combined)
+                    .unwrap_or(std::cmp::Ordering::Greater)
             });
             res.truncate(MAX_RESULTS);
             if args.json {
                 println!("{}", serde_json::to_string(&res).unwrap());
             } else {
-                let res: Vec<(String, f32)> = res
+                let res: Vec<(String, f32, f32, f32)> = res
                     .into_iter()
-                    .map(|(k, v)| {
+                    .map(|result| {
                         (
-                            k.get_metadata(&"title".to_string())
+                            result
+                                .document
+                                .get_metadata(&"title".to_string())
                                 .map_or_else(|| "".to_string(), |res| res.to_string()),
-                            v,
+                            result.bm25,
+                            result.rank,
+                            result.combined,
                         )
                     })
                     .collect();
                 let mut builder = tabled::builder::Builder::new();
-                builder.push_record(["Title", "Score"]);
-                res.iter()
-                    .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
+                builder.push_record(["Title", "BM25", "Rank", "Score"]);
+                res.iter().for_each(|(title, bm25, rank, combined)| {
+                    builder.push_record([
+                        title,
+                        &bm25.to_string(),
+                        &rank.to_string(),
+                        &combined.to_string(),
+                    ])
+                });
                 let mut table = builder.build();
                 table.with(tabled::settings::style::Style::rounded());
                 println!("{table}");
@@ -113,6 +167,39 @@ fn main() {
                 println!("{}", serde_json::to_string(&links).unwrap());
             } else {
                 println!("{links:?}");
+            }
+        }
+        Subcommand::List => {
+            let mut res: Vec<(Document, f32)> = vault
+                .documents()
+                .into_iter()
+                .zip(rank(vault.documents(), vault.path(), MAX_ITER, TOLERANCE))
+                .map(|(k, v)| (k.to_owned(), v))
+                .collect();
+            res.sort_unstable_by(|a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)
+            });
+
+            if args.json {
+                println!("{}", serde_json::to_string(&res).unwrap());
+            } else {
+                let res: Vec<(String, f32)> = res
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k.get_metadata(&"title".to_string())
+                                .map_or_else(|| "".to_string(), |res| res.to_string()),
+                            v,
+                        )
+                    })
+                    .collect();
+                let mut builder = tabled::builder::Builder::new();
+                builder.push_record(["Title", "Score"]);
+                res.iter()
+                    .for_each(|(k, v)| builder.push_record([k, &v.to_string()]));
+                let mut table = builder.build();
+                table.with(tabled::settings::style::Style::rounded());
+                println!("{table}");
             }
         }
     }

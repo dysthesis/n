@@ -1,7 +1,10 @@
 use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use owo_colors::OwoColorize;
-use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelBridge,
+    ParallelIterator,
+};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -47,6 +50,7 @@ impl Vault {
     pub fn documents(&self) -> Vec<&Document> {
         self.documents.values().collect()
     }
+
     #[inline]
     pub fn get_document(&self, path: &MarkdownPath) -> Option<&Document> {
         self.documents.get(path)
