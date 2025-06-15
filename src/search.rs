@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rust_stemmers::{Algorithm, Stemmer};
 use serde::Serialize;
 
 /// We use the BM25 algorithm to search for the given query in the vault.
@@ -48,6 +49,7 @@ impl Corpus {
     /// Initilise a new corpus and calculate its statistics
     // NOTE: Figure out if we can guarantee that this document is definitely found in the corpus
     pub fn new(docs: Vec<String>) -> Self {
+        let stemmer = Stemmer::create(Algorithm::English);
         // Find the average length of a document in the corpus
         let avgdl = docs
             .iter()
@@ -63,6 +65,7 @@ impl Corpus {
             .flat_map(|doc| {
                 doc.split_whitespace()
                     .map(str::to_ascii_lowercase)
+                    .map(|x| stemmer.stem(x.as_str()).to_string())
                     .collect::<HashSet<_>>()
             })
             // Calculate the occurrence of each token
@@ -94,14 +97,18 @@ impl Corpus {
         let document_length = document.split_whitespace().count() as f32;
         let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / self.avgdl);
 
+        let stemmer = Stemmer::create(Algorithm::English);
         // Find out how many times each term shows up in the given document
-        let tf: HashMap<&str, usize> = document.split_whitespace().fold(
-            HashMap::new(),
-            |mut frequencies: HashMap<&str, usize>, term| {
-                *frequencies.entry(term).or_default() += 1;
-                frequencies
-            },
-        );
+        let tf: HashMap<String, usize> = document
+            .split_whitespace()
+            .map(|term| stemmer.stem(term).to_string())
+            .fold(
+                HashMap::new(),
+                |mut frequencies: HashMap<String, usize>, term| {
+                    *frequencies.entry(term).or_default() += 1;
+                    frequencies
+                },
+            );
 
         // Calculate the BM25 score of each term in the query
         query
