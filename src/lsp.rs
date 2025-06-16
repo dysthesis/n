@@ -1,3 +1,5 @@
+//! # LSP module
+
 use tower_lsp::{
     Client, LanguageServer, LspService, Server,
     jsonrpc::Result,

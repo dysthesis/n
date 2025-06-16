@@ -122,6 +122,20 @@ pub struct Document {
 
 impl Document {
     #[inline]
+    pub fn name(&self) -> String {
+        let file_name = self
+            .path
+            .path()
+            .file_stem()
+            // A MarkdownPath is guaranteed to exist in the filesystem, at least at the time of
+            // creation. This might be susceptible to TOCTOU bugs, though.
+            .expect("the file should have a name")
+            .to_string_lossy()
+            .to_string();
+        self.get_metadata(&"title".to_string())
+            .map_or_else(|| file_name, |val| val.to_string().to_string())
+    }
+    #[inline]
     pub fn path(&self) -> MarkdownPath {
         self.path.clone()
     }

@@ -1,40 +1,45 @@
+//! We use the BM25 algorithm to search for the given query in the vault.
+//!
+//! From Wikipedia:
+//!
+//! Given a query Q containing keywords q_1 to q_n, the BM25 score of a document D is
+//!
+//! score(D, Q) = sum of IDF(q_i)
+//!                 * (f(q_i, D) * (k_1 + 1))
+//!                     / (f(q_i, D) + k_1 * (1 - b + b * (|D| / avgdl)))
+//!
+//! for i = 1..n, where
+//!
+//! - f(q_i, D) is how often the term q_i appears in document D,
+//! - avgdl is the average document length in the list of documents,
+//! - and IDF(q_i) is the inverse document frequency, defined as
+//!
+//! IDF(q_i) = ln((N - n(q_i) + 0.5) / (n(q_i) + 0.5) + 1),
+//!
+//! where
+//!
+//! - N is the total number of notes in the vault, and
+//! - n(q_i) is the total number of documents containing q_i
+//!
+//! k_1 and b are optimisation parameters, with the usual values being k_1 in [1.2, 2.0] and b =
+//! 0.75.
+//!
+//! References:
+//!
+//! - https://en.wikipedia.org/wiki/Okapi_BM25
+//! - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
 use std::collections::{HashMap, HashSet};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rust_stemmers::{Algorithm, Stemmer};
 use serde::Serialize;
 
-/// We use the BM25 algorithm to search for the given query in the vault.
-///
-/// From Wikipedia:
-///
-/// Given a query Q containing keywords q_1 to q_n, the BM25 score of a document D is
-///
-/// score(D, Q) = sum of IDF(q_i)
-///                 * (f(q_i, D) * (k_1 + 1))
-///                     / (f(q_i, D) + k_1 * (1 - b + b * (|D| / avgdl)))
-///
-/// for i = 1..n, where
-///
-/// - f(q_i, D) is how often the term q_i appears in document D,
-/// - avgdl is the average document length in the list of documents,
-/// - and IDF(q_i) is the inverse document frequency, defined as
-///
-/// IDF(q_i) = ln((N - n(q_i) + 0.5) / (n(q_i) + 0.5) + 1),
-///
-/// where
-///
-/// - N is the total number of notes in the vault, and
-/// - n(q_i) is the total number of documents containing q_i
-///
-/// k_1 and b are optimisation parameters, with the usual values being k_1 in [1.2, 2.0] and b =
-/// 0.75.
-///
-/// References:
-///
-/// - https://en.wikipedia.org/wiki/Okapi_BM25
-/// - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
 #[derive(Serialize, Debug)]
+/// The precomputed statistics on the vault
+///
+/// * `docs`: the stripped-down contents of the documents in the  vault
+/// * `avgdl`: the average length of the documents in the vault
+/// * `idf`: the inverse document frequency
 pub struct Corpus {
     docs: Vec<String>,
     avgdl: f32,

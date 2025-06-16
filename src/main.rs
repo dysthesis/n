@@ -9,7 +9,7 @@ mod search;
 mod template;
 mod vault;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
@@ -108,10 +108,7 @@ async fn main() {
                     .into_iter()
                     .map(|result| {
                         (
-                            result
-                                .document
-                                .get_metadata(&"title".to_string())
-                                .map_or_else(|| "".to_string(), |res| res.to_string()),
+                            result.document.name(),
                             result.bm25,
                             result.rank,
                             result.combined,
@@ -138,7 +135,7 @@ async fn main() {
             let results = vault.query(parsed_query);
             results
                 .par_iter()
-                .filter_map(|doc| doc.get_metadata(&"title".to_string()))
+                .map(|doc| doc.name())
                 .for_each(|title| println!("{title}"));
         }
         Subcommand::Inspect(path) => {
@@ -207,16 +204,7 @@ async fn main() {
             if args.json {
                 println!("{}", serde_json::to_string(&res).unwrap());
             } else {
-                let res: Vec<(String, f32)> = res
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k.get_metadata(&"title".to_string())
-                                .map_or_else(|| "".to_string(), |res| res.to_string()),
-                            v,
-                        )
-                    })
-                    .collect();
+                let res: Vec<(String, f32)> = res.into_iter().map(|(k, v)| (k.name(), v)).collect();
                 let mut builder = tabled::builder::Builder::new();
                 builder.push_record(["Title", "Score"]);
                 res.iter()
