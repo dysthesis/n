@@ -13,10 +13,11 @@ use tower_lsp::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
         CompletionResponse, CompletionTextEdit, DidChangeTextDocumentParams,
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
-        InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, MessageType,
-        OneOf, Position, PositionEncodingKind, Range, ServerCapabilities, ServerInfo,
-        TextDocumentContentChangeEvent, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-        Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
+        InitializedParams, InsertTextFormat, MessageType, OneOf, Position, PositionEncodingKind,
+        Range, ServerCapabilities, ServerInfo, TextDocumentContentChangeEvent,
+        TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
 };
 use tracing::{info, trace, warn};
@@ -69,12 +70,15 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
+        self.client
+            .log_message(MessageType::INFO, "Server shutting down!")
+            .await;
         Ok(())
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        /// Convert an LSP Position (UTF-16 based) into a Rope char index.
         #[inline]
+        /// Convert an LSP Position (UTF-16 based) into a Rope char index.
         fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
             // Get the index (in chars) of the start of the given line.
             let line_start_char = rope.line_to_char(pos.line as usize);
@@ -90,8 +94,8 @@ impl LanguageServer for Backend {
             // If the requested character is past EOL, clamp to line end.
             line_start_char + line.len_chars()
         }
-        // Convert a Rope char index to an LSP `Position` (UTF-16 code units).
         #[inline]
+        // Convert a Rope char index to an LSP `Position` (UTF-16 code units).
         fn char_idx_to_position(rope: &Rope, char_idx: usize) -> Position {
             // Which line is this?
             let line = rope.char_to_line(char_idx);
@@ -106,6 +110,7 @@ impl LanguageServer for Backend {
                 character: (utf16_offset - utf16_line) as u32,
             }
         }
+
         // Get document, cursor position, and trigger context
         let current_uri = &params.text_document_position.text_document.uri;
         let rope = match self.documents.get(current_uri) {
@@ -115,46 +120,31 @@ impl LanguageServer for Backend {
         let cursor_pos = params.text_document_position.position;
         let cursor_char = lsp_pos_to_char(&rope, cursor_pos);
 
-        // Walk backwards from the cursor to find `[[` and the search query.
         let mut start_char = 0;
-        let mut query = String::new();
-        let mut found_trigger = false;
+        let mut query = None;
         let search_limit = cursor_char.saturating_sub(200);
 
-        // Iterate backwards from the character index just before the cursor.
-        // The range `(search_limit..cursor_char)` goes from the limit up to the cursor.
-        // The `.rev()` here works because it's on a simple integer Range, which IS a DoubleEndedIterator.
         for i in (search_limit..cursor_char).rev() {
-            // Get the character at the current index.
             let ch = rope.char(i);
 
-            // If we hit a closing bracket or newline, it's not a valid link context.
-            // This is important to check first.
             if ch == ']' || ch == '\n' {
                 break;
             }
 
-            // Check for the trigger `[[`.
-            // If the current character is `[`...
-            if ch == '[' {
-                // ...and the character before it is also `[` (and we're not at the start of the file).
-                if i > 0 && rope.char(i - 1) == '[' {
-                    // Success! We found the start of the trigger at index `i - 1`.
-                    start_char = i - 1;
+            if ch == '[' && i > 0 && rope.char(i - 1) == '[' {
+                start_char = i - 1;
 
-                    // The query is the text between the `[[` and the cursor.
-                    query = rope.slice(start_char + 2..cursor_char).to_string();
-                    found_trigger = true;
-                    break; // We found our trigger, no need to look further.
-                }
+                query = Some(rope.slice(start_char + 2..cursor_char).to_string());
+                break; // We found our trigger, no need to look further.
             }
         }
 
-        if !found_trigger {
+        let query = if let Some(query) = query {
+            query
+        } else {
             return Ok(None);
-        }
+        };
 
-        // Get all possible completion candidates (stem and full URL)
         let candidates: Vec<(String, PathBuf)> = self
             .vault
             .documents()
@@ -162,7 +152,6 @@ impl LanguageServer for Backend {
             .map(|doc| (doc.name(), doc.path().path()))
             .collect();
 
-        // Fuzzy-match the query against the candidate stems
         let candidate_names: Vec<String> = candidates
             .iter()
             .map(|(name, _path)| name)
@@ -191,7 +180,6 @@ impl LanguageServer for Backend {
             end_char = cursor_char + 2;
         }
 
-        // Create the final edit_range using our calculated start and (potentially updated) end.
         let edit_range = Range {
             start: char_idx_to_position(&rope, start_char),
             end: char_idx_to_position(&rope, end_char),
@@ -202,6 +190,7 @@ impl LanguageServer for Backend {
             .map(|(name, path, _score)| {
                 let rel_path =
                     pathdiff::diff_paths(path.clone(), self.vault.path()).unwrap_or_default();
+
                 /// https://url.spec.whatwg.org/#fragment-percent-encode-set
                 const FRAGMENT: &AsciiSet =
                     &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
@@ -210,14 +199,13 @@ impl LanguageServer for Backend {
                     utf8_percent_encode(rel_path.to_string_lossy().to_string().as_str(), FRAGMENT)
                         .to_string();
 
-                // Create a snippet. `[${1:display_text}](path)`.
-                // The `${1: ...}` creates a tab-stop in the editor, making the text easily editable.
-                // We must escape the `{` for the format! macro with `{{`.
+                // Format snippet
                 let new_text = format!("[${{1:{}}}]({})", name.clone(), encoded_path);
 
                 CompletionItem {
-                    label: name.clone(), // Shows the filename in the completion list
+                    label: name.clone(),
                     kind: Some(CompletionItemKind::FILE),
+                    // We display the full file as details
                     detail: Some(
                         std::fs::read_to_string(path).unwrap_or("Cannot open file".to_string()),
                     ),
@@ -225,6 +213,7 @@ impl LanguageServer for Backend {
                         range: edit_range,
                         new_text,
                     })),
+
                     // Tell the client this is a snippet, not just plain text
                     insert_text_format: Some(InsertTextFormat::SNIPPET),
                     ..Default::default()

@@ -17,7 +17,7 @@ serde = {version = "1.0.219", features = ["derive"]}
 serde_json = "1.0.140"
 tabled = {version = "0.20.0", features = ["ansi"]}
 thiserror = "2.0.12"
-tokio = { version = "1.45.1", features = ["io-std", "macros", "rt", "rt-multi-thread"] }
+tokio = {version = "1.45.1", features = ["io-std", "macros", "rt", "rt-multi-thread"]}
 tower-lsp = "0.20.0"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"

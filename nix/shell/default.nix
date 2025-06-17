@@ -6,7 +6,8 @@
 pkgs.mkShell {
   name = "n";
 
-  packages = with pkgs;
+  packages =
+    with pkgs;
     [
       nixd
       alejandra
