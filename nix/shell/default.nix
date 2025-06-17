@@ -23,8 +23,8 @@ pkgs.mkShell {
       bolt_20
     ]
     ++ (with self.packages.${pkgs.system}; [
-      n
-      ns
-      nn
+      # n
+      # ns
+      # nn
     ]);
 }

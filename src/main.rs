@@ -48,7 +48,7 @@ async fn main() {
                 .expect("setting default subscriber failed");
 
             // Initialise the LSP backend
-            Backend::run().await;
+            Backend::run(vault).await;
         }
         Subcommand::New { template, path } => {
             let path = vault.path().join(format!("{path}.md"));

@@ -1,6 +1,10 @@
 //! # LSP module
 
+use std::path::PathBuf;
+
 use dashmap::DashMap;
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use ropey::Rope;
 use tower_lsp::{
     Client, LanguageServer, LspService, Server,
@@ -17,11 +21,14 @@ use tower_lsp::{
 };
 use tracing::{info, trace, warn};
 
+use crate::vault::Vault;
+
 #[derive(Debug)]
 pub struct Backend {
     client: Client,
     /// Maps a Url to the document
     documents: DashMap<Url, Rope>,
+    vault: Vault,
 }
 
 #[tower_lsp::async_trait]
@@ -98,63 +105,137 @@ impl LanguageServer for Backend {
                 character: (utf16_offset - utf16_line) as u32,
             }
         }
-
-        // TODO: Get the current progress
-        // TODO: Fuzzy-match the doucments in the vault with the current progrsss
-        // TODO: Format it into a Markdown link
-        // TODO: Return it
-        // Get the Rope snapshot (clone is cheap).
-        let uri = &params.text_document_position.text_document.uri;
-        let rope = match self.documents.get(uri) {
+        // Get document, cursor position, and trigger context
+        let current_uri = &params.text_document_position.text_document.uri;
+        let rope = match self.documents.get(current_uri) {
             Some(r) => r.clone(),
             None => return Ok(None),
         };
+        let cursor_pos = params.text_document_position.position;
+        let cursor_char = lsp_pos_to_char(&rope, cursor_pos);
 
-        // Compute cursor position in char indices.
-        let pos = params.text_document_position.position;
-        let pos_char = lsp_pos_to_char(&rope, pos);
+        // Walk backwards from the cursor to find `[[` and the search query.
+        let mut start_char = 0;
+        let mut query = String::new();
+        let mut found_trigger = false;
+        let search_limit = cursor_char.saturating_sub(200);
 
-        // Determine the look-back range (last up to 3 chars, for "[[[" case).
-        let lookback = 3.min(pos_char);
-        let start_char = pos_char - lookback;
-        let slice = rope.slice(start_char..pos_char);
-        let prefix = slice.to_string();
+        // Iterate backwards from the character index just before the cursor.
+        // The range `(search_limit..cursor_char)` goes from the limit up to the cursor.
+        // The `.rev()` here works because it's on a simple integer Range, which IS a DoubleEndedIterator.
+        for i in (search_limit..cursor_char).rev() {
+            // Get the character at the current index.
+            let ch = rope.char(i);
 
-        // Check for your triggers.
-        if prefix.ends_with("[[") || prefix.ends_with("[[]]") {
-            // Compute the range to replace (in LSP positions).
-            // Convert start_char back to Position if needed...
-            let start_pos = char_idx_to_position(&rope, start_char); /* convert byte back to Position, or re-run reverse logic */
-            let edit_range = Range {
-                start: start_pos,
-                end: pos,
-            };
+            // If we hit a closing bracket or newline, it's not a valid link context.
+            // This is important to check first.
+            if ch == ']' || ch == '\n' {
+                break;
+            }
 
-            // 5. Return a completion that replaces the trigger with your link snippet.
-            let link_snippet = "[My Link Text](url)".to_string();
-            let text_edit = TextEdit {
-                range: edit_range,
-                new_text: link_snippet,
-            };
+            // Check for the trigger `[[`.
+            // If the current character is `[`...
+            if ch == '[' {
+                // ...and the character before it is also `[` (and we're not at the start of the file).
+                if i > 0 && rope.char(i - 1) == '[' {
+                    // Success! We found the start of the trigger at index `i - 1`.
+                    start_char = i - 1;
 
-            let item = CompletionItem {
-                label: "Insert Markdown link".into(),
-                kind: Some(CompletionItemKind::SNIPPET),
-                text_edit: Some(CompletionTextEdit::Edit(text_edit)),
-                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                ..Default::default()
-            };
-
-            return Ok(Some(CompletionResponse::Array(vec![item])));
+                    // The query is the text between the `[[` and the cursor.
+                    query = rope.slice(start_char + 2..cursor_char).to_string();
+                    found_trigger = true;
+                    break; // We found our trigger, no need to look further.
+                }
+            }
         }
 
-        Ok(None)
+        if !found_trigger {
+            return Ok(None);
+        }
+
+        // Get all possible completion candidates (stem and full URL)
+        let candidates: Vec<(String, PathBuf)> = self
+            .vault
+            .documents()
+            .par_iter()
+            .map(|doc| (doc.name(), doc.path().path()))
+            .collect();
+
+        // 3. Fuzzy-match the query against the candidate stems
+        let candidate_names: Vec<String> = candidates
+            .iter()
+            .map(|(name, _path)| name)
+            .cloned()
+            .collect();
+
+        let mut matches: Vec<(String, PathBuf, frizbee::Match)> = candidates
+            .into_iter()
+            .zip(frizbee::match_list(
+                query,
+                candidate_names.as_slice(),
+                frizbee::Options::default(),
+            ))
+            .map(|((name, path), score)| (name, path, score))
+            .collect();
+
+        matches.sort_by(|a, b| b.2.cmp(&a.2));
+
+        if matches.is_empty() {
+            return Ok(None);
+        }
+
+        // Format the matches into `CompletionItem`s with Markdown links
+        let edit_range = Range {
+            start: char_idx_to_position(&rope, start_char),
+            end: cursor_pos,
+        };
+
+        let items: Vec<CompletionItem> = matches
+            .into_iter()
+            .map(|(name, path, _score)| {
+                /// https://url.spec.whatwg.org/#fragment-percent-encode-set
+                const FRAGMENT: &AsciiSet =
+                    &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+                // URL-encode the path to handle spaces, etc. e.g., "My Note.md" -> "My%20Note.md"
+                let encoded_path =
+                    utf8_percent_encode(path.to_string_lossy().to_string().as_str(), FRAGMENT)
+                        .to_string();
+
+                // Create a snippet. `[${1:display_text}](path)`.
+                // The `${1: ...}` creates a tab-stop in the editor, making the text easily editable.
+                // We must escape the `{` for the format! macro with `{{`.
+                let new_text = format!("[${{1:{}}}]({})", name.clone(), encoded_path);
+
+                CompletionItem {
+                    label: name.clone(), // Shows the filename in the completion list
+                    kind: Some(CompletionItemKind::FILE),
+                    detail: Some(format!("Create link to {name}")),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: edit_range,
+                        new_text,
+                    })),
+                    // Tell the client this is a snippet, not just plain text
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        self.client
+            .log_message(MessageType::INFO, "Found competion items!")
+            .await;
+
+        Ok(Some(CompletionResponse::Array(items)))
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let text = params.text_document.text;
         let rope = Rope::from(text);
-        self.documents.insert(params.text_document.uri, rope);
+        let uri = params.text_document.uri;
+        self.client
+            .log_message(MessageType::INFO, format!("File {uri} opened!"))
+            .await;
+        self.documents.insert(uri, rope);
     }
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         pub fn position_to_offset(rope: &Rope, position: Position) -> Option<usize> {
@@ -169,8 +250,11 @@ impl LanguageServer for Backend {
             })
         }
 
-        let url = params.text_document.uri;
-        if let Some(mut rope) = self.documents.get_mut(&url) {
+        let uri = params.text_document.uri;
+        self.client
+            .log_message(MessageType::INFO, format!("File {uri} changed!"))
+            .await;
+        if let Some(mut rope) = self.documents.get_mut(&uri) {
             for change in params.content_changes {
                 let TextDocumentContentChangeEvent { range, text, .. } = change;
                 match range {
@@ -192,14 +276,19 @@ impl LanguageServer for Backend {
             }
         }
     }
-
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.documents.remove(&params.text_document.uri);
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Closed file {}", params.text_document.uri),
+            )
+            .await;
     }
 }
 
 impl Backend {
-    pub async fn run() {
+    pub async fn run(vault: Vault) {
         trace!("Initialising LSP backend for n...");
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
@@ -207,6 +296,7 @@ impl Backend {
         let (service, socket) = LspService::new(|client| Backend {
             client,
             documents: DashMap::new(),
+            vault,
         });
         info!("Initialised LSP backend!");
 
