@@ -13,11 +13,10 @@ use tower_lsp::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
         CompletionResponse, CompletionTextEdit, DidChangeTextDocumentParams,
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
-        GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
-        InitializedParams, InsertTextFormat, MessageType, OneOf, Position, PositionEncodingKind,
-        Range, ServerCapabilities, ServerInfo, TextDocumentContentChangeEvent,
-        TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, MessageType,
+        OneOf, Position, PositionEncodingKind, Range, ServerCapabilities, ServerInfo,
+        TextDocumentContentChangeEvent, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+        Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
 };
 use tracing::{info, trace, warn};
@@ -148,7 +147,7 @@ impl LanguageServer for Backend {
         let candidates: Vec<(String, PathBuf)> = self
             .vault
             .documents()
-            .par_iter()
+            .iter()
             .map(|doc| (doc.name(), doc.path().path()))
             .collect();
 
@@ -160,11 +159,15 @@ impl LanguageServer for Backend {
 
         let mut matches: Vec<(String, PathBuf, frizbee::Match)> = candidates
             .into_iter()
-            .zip(frizbee::match_list(
-                query,
-                candidate_names.as_slice(),
-                frizbee::Options::default(),
-            ))
+            .zip(
+                // NOTE: Don't even bother with the parallel version. It gives you a divide by zero
+                // error.
+                frizbee::match_list(
+                    query,
+                    candidate_names.as_slice(),
+                    frizbee::Options::default(),
+                ),
+            )
             .map(|((name, path), score)| (name, path, score))
             .collect();
 
