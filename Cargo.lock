@@ -247,6 +247,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "frizbee"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2752e2d03afff2850116bcfe936383d24f60bed3ed9b87da7772ae2c3ac5161"
+dependencies = [
+ "memchr",
+ "rayon",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -583,6 +593,7 @@ dependencies = [
 name = "n"
 version = "0.1.0"
 dependencies = [
+ "frizbee",
  "lazy_static",
  "lexopt",
  "nom 8.0.0",

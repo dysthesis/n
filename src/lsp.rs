@@ -32,6 +32,10 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        // TODO: Get the current progress
+        // TODO: Fuzzy-match the doucments in the vault with the current progrsss
+        // TODO: Format it into a Markdown link
+        // TODO: Return it
         todo!()
     }
 }
