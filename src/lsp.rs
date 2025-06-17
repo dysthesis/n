@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use dashmap::DashMap;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use ropey::Rope;
 use tower_lsp::{
     Client, LanguageServer, LspService, Server,
