@@ -7,8 +7,8 @@ use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{
         CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-        DidOpenTextDocumentParams, InitializeParams, InitializeResult, InitializedParams,
-        MessageType, Position, Range, TextDocumentContentChangeEvent, Url,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
+        InitializedParams, MessageType, Position, Range, TextDocumentContentChangeEvent, Url,
     },
 };
 use tracing::{info, trace, warn};
@@ -80,6 +80,10 @@ impl LanguageServer for Backend {
                 }
             }
         }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.documents.remove(&params.text_document.uri);
     }
 }
 
