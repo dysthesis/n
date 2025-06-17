@@ -90,7 +90,7 @@ impl Args {
             val if val == "new" => {
                 let template =
                     fs::read_to_string::<String>(template_file.ok_or("missing argument")?).unwrap();
-                let path = argument.ok_or("missing argument")?.into();
+                let path = argument.ok_or("missing argument")?;
                 let template = Template::new(template, variables);
                 Subcommand::New { template, path }
             }

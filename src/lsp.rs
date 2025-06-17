@@ -74,6 +74,7 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         /// Convert an LSP Position (UTF-16 based) into a Rope char index.
+        #[inline]
         fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
             // Get the index (in chars) of the start of the given line.
             let line_start_char = rope.line_to_char(pos.line as usize);
@@ -161,7 +162,7 @@ impl LanguageServer for Backend {
             .map(|doc| (doc.name(), doc.path().path()))
             .collect();
 
-        // 3. Fuzzy-match the query against the candidate stems
+        // Fuzzy-match the query against the candidate stems
         let candidate_names: Vec<String> = candidates
             .iter()
             .map(|(name, _path)| name)
@@ -184,21 +185,29 @@ impl LanguageServer for Backend {
             return Ok(None);
         }
 
-        // Format the matches into `CompletionItem`s with Markdown links
+        let mut end_char = cursor_char;
+
+        if cursor_char + 2 <= rope.len_chars() && rope.slice(cursor_char..cursor_char + 2) == "]]" {
+            end_char = cursor_char + 2;
+        }
+
+        // Create the final edit_range using our calculated start and (potentially updated) end.
         let edit_range = Range {
             start: char_idx_to_position(&rope, start_char),
-            end: cursor_pos,
+            end: char_idx_to_position(&rope, end_char),
         };
 
         let items: Vec<CompletionItem> = matches
             .into_iter()
             .map(|(name, path, _score)| {
+                let rel_path =
+                    pathdiff::diff_paths(path.clone(), self.vault.path()).unwrap_or_default();
                 /// https://url.spec.whatwg.org/#fragment-percent-encode-set
                 const FRAGMENT: &AsciiSet =
                     &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
                 // URL-encode the path to handle spaces, etc. e.g., "My Note.md" -> "My%20Note.md"
                 let encoded_path =
-                    utf8_percent_encode(path.to_string_lossy().to_string().as_str(), FRAGMENT)
+                    utf8_percent_encode(rel_path.to_string_lossy().to_string().as_str(), FRAGMENT)
                         .to_string();
 
                 // Create a snippet. `[${1:display_text}](path)`.
@@ -209,7 +218,9 @@ impl LanguageServer for Backend {
                 CompletionItem {
                     label: name.clone(), // Shows the filename in the completion list
                     kind: Some(CompletionItemKind::FILE),
-                    detail: Some(format!("Create link to {name}")),
+                    detail: Some(
+                        std::fs::read_to_string(path).unwrap_or("Cannot open file".to_string()),
+                    ),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: edit_range,
                         new_text,
