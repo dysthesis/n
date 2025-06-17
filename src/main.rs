@@ -9,7 +9,7 @@ mod search;
 mod template;
 mod vault;
 
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
@@ -40,6 +40,7 @@ async fn main() {
         Subcommand::Lsp => {
             // Set up logging
             let subscriber = FmtSubscriber::builder()
+                .with_writer(std::io::stderr)
                 .with_max_level(Level::TRACE)
                 .finish();
 
