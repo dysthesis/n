@@ -34,7 +34,7 @@ pub const TOLERANCE: f32 = 0.0000001;
 #[tokio::main]
 async fn main() {
     let args = Args::parse().unwrap();
-    let vault = dbg!(Vault::new(args.vault_dir.clone()).unwrap());
+    let (vault, _) = Vault::new(args.vault_dir.clone()).unwrap();
     // TODO: Pretty-print the results
     match args.subcommand {
         Subcommand::Lsp => {
@@ -145,7 +145,7 @@ async fn main() {
             match path {
                 Some(path) => {
                     let full_path = MarkdownPath::new(base_path, path).unwrap();
-                    let document = vault.get_document(&dbg!(full_path)).unwrap();
+                    let document = vault.get_document(&full_path).unwrap();
                     if args.json {
                         println!("{}", serde_json::to_string(document).unwrap());
                     } else {

@@ -59,8 +59,10 @@ impl Vault {
         self.documents.get(path)
     }
 
-    pub fn new(base_path: PathBuf) -> Result<Self, VaultInitialisationError> {
-        let (documents, errors): (
+    pub fn new(
+        base_path: PathBuf,
+    ) -> Result<(Self, Vec<VaultInitialisationError>), VaultInitialisationError> {
+        let (documents, ignorable_errors): (
             HashMap<MarkdownPath, Document>,
             Vec<VaultInitialisationError>,
         ) = base_path
@@ -71,15 +73,15 @@ impl Vault {
             })?
             .par_bridge()
             .map(|path| match path {
-                // TODO: Log this error. We don't want one broken file to block the initialisation
-                // process, but we also might want to optionally know which file failed.
+                // TODO: Try to check here if the document is definitely not a Markdown file (e.g.
+                // if the extension is not .md or if it's a directory), so that it does not error
+                // out
                 Ok(file) => Document::new(base_path.clone(), file.path().clone()).map_err(|e| {
                     VaultInitialisationError::CannotInitialiseDocument {
                         path: file.path(),
                         reason: e.to_string(),
                     }
                 }),
-                // TODO: This one, too.
                 Err(e) => Err(VaultInitialisationError::ReadFileFailed {
                     reason: e.to_string(),
                 }),
@@ -105,9 +107,11 @@ impl Vault {
                 },
             );
 
-        if !errors.is_empty() {
-            return Err(VaultInitialisationError::Multiple { errors });
-        }
+        // TODO: We can maybe log the error instead of entirely crashing out. Maybe we can return a
+        // tuple of (Vault, Vec<VaultInitialisationError>)?
+        // if !errors.is_empty() {
+        //     return Err(VaultInitialisationError::Multiple { errors });
+        // }
 
         let corpus = Corpus::new(
             documents
@@ -116,11 +120,14 @@ impl Vault {
                 .collect(),
         );
 
-        Ok(Vault {
-            path: base_path,
-            documents,
-            corpus,
-        })
+        Ok((
+            Vault {
+                path: base_path,
+                documents,
+                corpus,
+            },
+            ignorable_errors,
+        ))
     }
 
     pub fn search(&self, query: String) -> HashMap<Document, f32> {
