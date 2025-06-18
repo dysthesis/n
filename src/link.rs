@@ -1,5 +1,6 @@
 use std::{
     fmt::Display,
+    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -14,6 +15,7 @@ use crate::path::MarkdownPath;
 pub struct Link {
     pub text: String,
     pub url: String,
+    pub range: Range<usize>,
 }
 
 impl Link {

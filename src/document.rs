@@ -1,7 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
 use owo_colors::OwoColorize;
-use pulldown_cmark::{Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TextMergeStream};
+use pulldown_cmark::{
+    Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TagEnd, TextMergeStream,
+    TextMergeWithOffset,
+};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 use tabled::Tabled;
@@ -226,10 +229,11 @@ impl Document {
 
         let mut options = Options::empty();
         options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
-        let mut iter = TextMergeStream::new(Parser::new_ext(&contents, options)).peekable();
+        let mut iter =
+            TextMergeWithOffset::new(Parser::new_ext(&contents, options).into_offset_iter());
 
         while let Some(event) = iter.next() {
-            match (event, iter.peek()) {
+            match event {
                 // Parse link
                 (
                     Event::Start(Tag::Link {
@@ -238,39 +242,43 @@ impl Document {
                         title: _,
                         id: _,
                     }),
-                    Some(Event::Text(text)),
+                    start,
                 ) => {
-                    document.insert_link(Link {
-                        text: text.clone().into_string(),
-                        url: dest_url.into_string(),
-                    });
+                    if let Some((Event::Text(text), _)) = iter.next()
+                        && let Some((Event::End(TagEnd::Link), end)) = iter.next()
+                    {
+                        document.insert_link(Link {
+                            text: text.clone().into_string(),
+                            url: dest_url.into_string(),
+                            range: start.start..end.end,
+                        });
+                    }
                 }
                 // Parse frontmatter
-                (
-                    Event::Start(Tag::MetadataBlock(MetadataBlockKind::YamlStyle)),
-                    Some(Event::Text(text)),
-                ) => {
-                    let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
-                        .map_err(|e| ParseError::FrontmatterParseFailed {
-                            path: path.clone().path(),
-                            reason: e.to_string(),
-                        })?;
-                    let root =
-                        parsed
-                            .first()
-                            .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                (Event::Start(Tag::MetadataBlock(MetadataBlockKind::YamlStyle)), _) => {
+                    if let Some((Event::Text(text), _)) = iter.next() {
+                        let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
+                            .map_err(|e| ParseError::FrontmatterParseFailed {
                                 path: path.clone().path(),
-                                reason: "Cannot get the root of the frontmatter".into(),
+                                reason: e.to_string(),
                             })?;
-                    let hash =
-                        root.as_hash()
-                            .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                path: path.clone().path(),
-                                reason: "Top-level is not a mapping".into(),
-                            })?;
-                    hash.iter().for_each(|(k, v)| {
-                        _ = document.insert_metadata(k.to_owned(), v.to_owned());
-                    });
+                        let root =
+                            parsed
+                                .first()
+                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                    path: path.clone().path(),
+                                    reason: "Cannot get the root of the frontmatter".into(),
+                                })?;
+                        let hash =
+                            root.as_hash()
+                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                    path: path.clone().path(),
+                                    reason: "Top-level is not a mapping".into(),
+                                })?;
+                        hash.iter().for_each(|(k, v)| {
+                            _ = document.insert_metadata(k.to_owned(), v.to_owned());
+                        });
+                    }
                 }
                 _ => {}
             }
