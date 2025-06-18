@@ -161,6 +161,8 @@ impl PosMapper {
             });
         };
 
+        // TODO: Figure out why I can only adjust the row index here, and not above where
+        // `line_start_idx` was defined.
         Ok((Row(line_start_idx + 1), Column(character)))
     }
 }
