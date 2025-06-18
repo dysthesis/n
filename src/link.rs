@@ -47,6 +47,10 @@ impl Link {
             None
         }
     }
+    #[inline]
+    pub fn pos(&self) -> Pos {
+        self.position.clone()
+    }
 }
 
 impl Display for Link {

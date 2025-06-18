@@ -1,4 +1,4 @@
-//! # LSP module
+//! # LSP module.
 
 use std::path::PathBuf;
 
@@ -6,21 +6,26 @@ use dashmap::DashMap;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use ropey::Rope;
 use tower_lsp::{
-    Client, LanguageServer, LspService, Server,
-    jsonrpc::Result,
+    Client, LanguageServer, LspService, Server, jsonrpc,
     lsp_types::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
         CompletionResponse, CompletionTextEdit, DidChangeTextDocumentParams,
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
-        InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, MessageType,
-        OneOf, Position, PositionEncodingKind, Range, ServerCapabilities, ServerInfo,
+        GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
+        InitializedParams, InsertTextFormat, Location, MessageType, OneOf, Position,
+        PositionEncodingKind, Range, ServerCapabilities, ServerInfo,
         TextDocumentContentChangeEvent, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
         Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
 };
 use tracing::{info, trace, warn};
 
-use crate::vault::Vault;
+use crate::{
+    link::Link,
+    path::MarkdownPath,
+    pos::{Column, Row},
+    vault::Vault,
+};
 
 #[derive(Debug)]
 pub struct Backend {
@@ -32,7 +37,7 @@ pub struct Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, _: InitializeParams) -> jsonrpc::Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "n".to_string(),
@@ -43,6 +48,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                definition_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -67,14 +73,17 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn shutdown(&self) -> Result<()> {
+    async fn shutdown(&self) -> jsonrpc::Result<()> {
         self.client
             .log_message(MessageType::INFO, "Server shutting down!")
             .await;
         Ok(())
     }
 
-    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> jsonrpc::Result<Option<CompletionResponse>> {
         #[inline]
         /// Convert an LSP Position (UTF-16 based) into a Rope char index.
         fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
@@ -228,6 +237,121 @@ impl LanguageServer for Backend {
             .await;
 
         Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> jsonrpc::Result<Option<GotoDefinitionResponse>> {
+        let path = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_file_path()
+            .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "Found the path of the current document: `{}`",
+                    &path.display()
+                ),
+            )
+            .await;
+
+        let cursor_pos = params.text_document_position_params.position;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("The cursor is at {:?}", &cursor_pos),
+            )
+            .await;
+
+        // NOTE: This implementation makes the assumption that the file being opened is inside the
+        // current vault. It crashes out otherwise.
+        // TODO: See how the likes of zk and markdown-oxide handles out-of-vault documents.
+        let path = if let Ok(path) = MarkdownPath::new(self.vault.path(), path.clone()) {
+            path
+        } else {
+            self.client
+                .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
+                .await;
+            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
+        };
+
+        self.client
+            .log_message(MessageType::INFO, "The path is a valid markdown path")
+            .await;
+
+        let document = self
+            .vault
+            .get_document(&path)
+            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Obtained valid document from the vault: {document:?}"),
+            )
+            .await;
+
+        // Find the link in the document where the cursor is.
+        // NOTE: We know that it is impossible for more than one link to exist at a given position;
+        // that is, links cannot overlap in position.
+        let link = document.links().into_iter().find(|link: &Link| {
+            // TODO: How do you make a closure async?
+            // self.client
+            //     .log_message(MessageType::INFO, format!("Checking link {:?}", &link))
+            //     .await;
+            let row_range: std::ops::Range<Row> = link.pos().row_range();
+            let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
+            let col_range: std::ops::Range<Column> = link.pos().col_range();
+            let col_range: std::ops::Range<usize> = col_range.start.into()..col_range.end.into();
+
+            // TODO: Use `.try_into()` instead of `as`, and implement en appropriate error
+            // variant for it.
+            // Or better yet, refactor Pos to keep track of u32 instead of usize
+            row_range.start <= cursor_pos.line as usize
+                && row_range.end >= cursor_pos.line as usize
+                && col_range.start <= cursor_pos.character as usize
+                && col_range.end >= cursor_pos.character as usize
+        });
+
+        let link = if let Some(link) = link {
+            link
+        } else {
+            return Ok(None);
+        };
+
+        let path = if let Some(path) = self.vault.resolve_link(link.clone()) {
+            path
+        } else {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Cannot resolve link at `{link:?}`"),
+                )
+                .await;
+            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
+        };
+        let row_range: std::ops::Range<Row> = link.pos().row_range();
+        let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
+        let col_range: std::ops::Range<Column> = link.pos().col_range();
+        let col_range: std::ops::Range<usize> = col_range.start.into()..col_range.end.into();
+
+        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            uri: Url::from_file_path(path.path()).unwrap(),
+            range: Range {
+                start: Position {
+                    line: row_range.start as u32,
+                    character: col_range.start as u32,
+                },
+                end: Position {
+                    line: row_range.end as u32,
+                    character: col_range.end as u32,
+                },
+            },
+        })))
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {

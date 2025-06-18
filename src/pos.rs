@@ -10,12 +10,32 @@ use tower_lsp::lsp_types::{Position, PositionEncodingKind};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Offset(usize);
+impl From<Offset> for usize {
+    fn from(value: Offset) -> Self {
+        let Offset(val) = value;
+        val
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Row(usize);
+impl From<Row> for usize {
+    fn from(value: Row) -> Self {
+        let Row(val) = value;
+        val
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Column(usize);
+impl From<Column> for usize {
+    fn from(value: Column) -> Self {
+        let Column(val) = value;
+        val
+    }
+}
 
 /// Helper to map between byte ranges and row/col ranges
 pub struct PosMapper {

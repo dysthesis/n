@@ -5,7 +5,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{document::Document, path::MarkdownPath, query::Query, search::Corpus};
+use crate::{document::Document, link::Link, path::MarkdownPath, query::Query, search::Corpus};
 
 /// A collection of notes
 #[derive(Debug, Serialize)]
@@ -38,10 +38,6 @@ pub enum VaultInitialisationError {
     ReadFileFailed { reason: String },
     #[error("the file `{path}` in the vault cannot be initialised as a document because {reason}")]
     CannotInitialiseDocument { path: PathBuf, reason: String },
-    #[error("multiple errors encountered: {errors:?}")]
-    Multiple {
-        errors: Vec<VaultInitialisationError>,
-    },
 }
 
 impl Vault {
@@ -59,6 +55,10 @@ impl Vault {
         self.documents.get(path)
     }
 
+    pub fn resolve_link(&self, link: Link) -> Option<MarkdownPath> {
+        link.to_markdown_path(self.path())
+    }
+
     pub fn new(
         base_path: PathBuf,
     ) -> Result<(Self, Vec<VaultInitialisationError>), VaultInitialisationError> {
@@ -73,9 +73,6 @@ impl Vault {
             })?
             .par_bridge()
             .map(|path| match path {
-                // TODO: Try to check here if the document is definitely not a Markdown file (e.g.
-                // if the extension is not .md or if it's a directory), so that it does not error
-                // out
                 Ok(file) => Document::new(base_path.clone(), file.path().clone()).map_err(|e| {
                     VaultInitialisationError::CannotInitialiseDocument {
                         path: file.path(),
