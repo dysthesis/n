@@ -8,10 +8,13 @@ use tower_lsp::lsp_types::{Position, PositionEncodingKind};
 
 /// The offset of the element from the start of the file in terms of bytes
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct Offset(usize);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct Row(usize);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct Column(usize);
 
 /// Helper to map between byte ranges and row/col ranges
@@ -124,18 +127,19 @@ impl PosMapper {
         // The text from the start of the line up to the target offset.
         let text_before_offset_in_line = &self.text[line_start..offset];
 
-        let character = match self.encoding.as_str() {
-            "utf16" => text_before_offset_in_line.encode_utf16().count() as u32,
-
-            // For both UTF-8 and UTF-32, the `character` field
-            // is the number of Rust `char`s (Unicode scalar values).
-            "utf8" | "utf32" => text_before_offset_in_line.chars().count() as u32,
-
-            _ => {
-                return Err(PositionError::UnknownEncoding {
-                    encoding: self.encoding.clone(),
-                });
-            }
+        let character = if self.encoding == PositionEncodingKind::UTF16 {
+            text_before_offset_in_line.encode_utf16().count() as u32
+        }
+        // For both UTF-8 and UTF-32, the `character` field
+        // is the number of Rust `char`s (Unicode scalar values).
+        else if self.encoding == PositionEncodingKind::UTF8
+            || self.encoding == PositionEncodingKind::UTF32
+        {
+            text_before_offset_in_line.chars().count() as u32
+        } else {
+            return Err(PositionError::UnknownEncoding {
+                encoding: self.encoding.clone(),
+            });
         };
 
         Ok(Position::new(line as u32, character))

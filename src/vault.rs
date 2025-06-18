@@ -34,8 +34,14 @@ impl Display for Vault {
 pub enum VaultInitialisationError {
     #[error("the directory `{path}` cannot be opened because {reason}")]
     ReadDirFailed { path: PathBuf, reason: String },
-    // #[error("the file `{path}` in the vault cannot be initialised as a document because {reason}")]
-    // CannotInitialiseDocument { path: PathBuf, reason: String },
+    #[error("cannot read the file  because {reason}")]
+    ReadFileFailed { reason: String },
+    #[error("the file `{path}` in the vault cannot be initialised as a document because {reason}")]
+    CannotInitialiseDocument { path: PathBuf, reason: String },
+    #[error("multiple errors encountered: {errors:?}")]
+    Multiple {
+        errors: Vec<VaultInitialisationError>,
+    },
 }
 
 impl Vault {
@@ -52,23 +58,56 @@ impl Vault {
     pub fn get_document(&self, path: &MarkdownPath) -> Option<&Document> {
         self.documents.get(path)
     }
+
     pub fn new(base_path: PathBuf) -> Result<Self, VaultInitialisationError> {
-        let documents: HashMap<MarkdownPath, Document> = base_path
+        let (documents, errors): (
+            HashMap<MarkdownPath, Document>,
+            Vec<VaultInitialisationError>,
+        ) = base_path
             .read_dir()
             .map_err(|reason| VaultInitialisationError::ReadDirFailed {
                 path: base_path.clone(),
                 reason: reason.to_string(),
             })?
             .par_bridge()
-            .filter_map(|path| match path {
+            .map(|path| match path {
                 // TODO: Log this error. We don't want one broken file to block the initialisation
                 // process, but we also might want to optionally know which file failed.
-                Ok(file) => Document::new(base_path.clone(), file.path().clone()).ok(),
+                Ok(file) => Document::new(base_path.clone(), file.path().clone()).map_err(|e| {
+                    VaultInitialisationError::CannotInitialiseDocument {
+                        path: file.path(),
+                        reason: e.to_string(),
+                    }
+                }),
                 // TODO: This one, too.
-                Err(_) => None,
+                Err(e) => Err(VaultInitialisationError::ReadFileFailed {
+                    reason: e.to_string(),
+                }),
             })
-            .map(|document| (document.path(), document))
-            .collect();
+            .fold(
+                || (HashMap::new(), Vec::new()),
+                |(mut res, mut err), val| {
+                    match val {
+                        Ok(doc) => {
+                            res.insert(doc.path(), doc);
+                        }
+                        Err(e) => err.push(e),
+                    }
+                    (res, err)
+                },
+            )
+            .reduce(
+                || (HashMap::new(), Vec::new()),
+                |(mut res_acc, mut err_acc), (res_curr, err_curr)| {
+                    res_acc.extend(res_curr);
+                    err_acc.extend(err_curr);
+                    (res_acc, err_acc)
+                },
+            );
+
+        if !errors.is_empty() {
+            return Err(VaultInitialisationError::Multiple { errors });
+        }
 
         let corpus = Corpus::new(
             documents
