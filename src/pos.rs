@@ -47,17 +47,14 @@ pub struct PosMapper {
 
 impl PosMapper {
     pub fn new(text: String, encoding: PositionEncodingKind) -> Self {
-        let line_starts = {
-            let mut starts = vec![0];
-            starts.extend(
-                text.as_bytes()
-                    .iter()
-                    .enumerate()
-                    .filter(|&(_, &b)| b == b'\n')
-                    .map(|(i, _)| i + 1),
-            );
-            starts
-        };
+        let line_starts = text
+            .as_bytes()
+            .iter()
+            .enumerate()
+            .filter(|&(_, &b)| b == b'\n')
+            // Get the character after the newline
+            .map(|(i, _)| i + 1)
+            .collect();
 
         Self {
             text,
@@ -130,7 +127,7 @@ impl PosMapper {
     /// Converts a byte offset (`usize`) to an LSP `Position`.
     ///
     /// Returns `None` if the offset is out of bounds of the document text.
-    pub fn offset_to_position(&self, offset: usize) -> Result<Position, PositionError> {
+    pub fn offset_to_position(&self, offset: usize) -> Result<(Row, Column), PositionError> {
         if offset > self.text.len() {
             return Err(PositionError::OffsetOutOfRange {
                 offset,
@@ -138,8 +135,8 @@ impl PosMapper {
             });
         }
 
-        // `partition_point` is a highly efficient way to find the line number.
-        // It's a binary search for the last line start <= offset.
+        // `partition_point` is a highly efficient way to find the line number of the offset. It's
+        // a binary search for the last line start <= offset.
         let line = self.line_starts.partition_point(|&start| start <= offset) - 1;
 
         let line_start = self.line_starts[line];
@@ -148,21 +145,21 @@ impl PosMapper {
         let text_before_offset_in_line = &self.text[line_start..offset];
 
         let character = if self.encoding == PositionEncodingKind::UTF16 {
-            text_before_offset_in_line.encode_utf16().count() as u32
+            text_before_offset_in_line.encode_utf16().count()
         }
         // For both UTF-8 and UTF-32, the `character` field
         // is the number of Rust `char`s (Unicode scalar values).
         else if self.encoding == PositionEncodingKind::UTF8
             || self.encoding == PositionEncodingKind::UTF32
         {
-            text_before_offset_in_line.chars().count() as u32
+            text_before_offset_in_line.chars().count()
         } else {
             return Err(PositionError::UnknownEncoding {
                 encoding: self.encoding.clone(),
             });
         };
 
-        Ok(Position::new(line as u32, character))
+        Ok((Row(line), Column(character)))
     }
 }
 
@@ -202,48 +199,12 @@ impl Pos {
         let position_range = mapper.offset_to_position(offset_range.start)?
             ..mapper.offset_to_position(offset_range.start)?;
 
-        let row_start = position_range
-            .start
-            .line
-            .try_into()
-            .map_err(
-                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
-                    value: position_range.start.line,
-                    reason: e.to_string(),
-                },
-            )?;
-        let row_end = position_range
-            .end
-            .line
-            .try_into()
-            .map_err(
-                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
-                    value: position_range.start.line,
-                    reason: e.to_string(),
-                },
-            )?;
+        let row_start = position_range.start.0.into();
+        let row_end = position_range.end.0.into();
         let row_range = Row(row_start)..Row(row_end);
-        let col_start =
-            position_range
-                .start
-                .character
-                .try_into()
-                .map_err(
-                    |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
-                        value: position_range.start.line,
-                        reason: e.to_string(),
-                    },
-                )?;
-        let col_end = position_range
-            .end
-            .character
-            .try_into()
-            .map_err(
-                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
-                    value: position_range.start.line,
-                    reason: e.to_string(),
-                },
-            )?;
+
+        let col_start = position_range.start.1.into();
+        let col_end = position_range.end.1.into();
         let col_range = Column(col_start)..Column(col_end);
         let offset_range = Offset(offset_range.start)..Offset(offset_range.end);
         Ok(Self {
@@ -253,6 +214,7 @@ impl Pos {
         })
     }
 
+    #[allow(unused)]
     pub fn offset_range(&self) -> Range<Offset> {
         self.offset_range.clone()
     }

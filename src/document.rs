@@ -245,16 +245,15 @@ impl Document {
                         title: _,
                         id: _,
                     }),
-                    start,
+                    range,
                 ) => {
                     if let Some((Event::Text(text), _)) = iter.next()
-                        && let Some((Event::End(TagEnd::Link), end)) = iter.next()
+                        && let Some((Event::End(TagEnd::Link), _)) = iter.next()
                     {
-                        let position =
-                            Pos::new(start.start..end.end, &path, PositionEncodingKind::UTF16)
-                                .map_err(|e| ParseError::PositionNotFound {
-                                    reason: e.to_string(),
-                                })?;
+                        let position = Pos::new(range, &path, PositionEncodingKind::UTF16)
+                            .map_err(|e| ParseError::PositionNotFound {
+                                reason: e.to_string(),
+                            })?;
 
                         document.insert_link(Link::new(
                             text.clone().into_string(),
