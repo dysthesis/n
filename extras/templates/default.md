@@ -1,5 +1,5 @@
 ---
-title: { { title } }
-date: { { date } }
-id: { { id } }
+title: {{title}}
+created: {{created}}
+id: {{id}}
 ---
