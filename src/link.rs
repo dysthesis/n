@@ -1,6 +1,5 @@
 use std::{
     fmt::Display,
-    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -8,17 +7,24 @@ use owo_colors::OwoColorize;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
 
-use crate::path::MarkdownPath;
+use crate::{path::MarkdownPath, pos::Pos};
 
 #[derive(Debug, Serialize, Clone, Hash, PartialEq, Eq)]
 /// A link in a Markdown file
 pub struct Link {
-    pub text: String,
-    pub url: String,
-    pub range: Range<usize>,
+    text: String,
+    url: String,
+    position: Pos,
 }
 
 impl Link {
+    pub fn new(text: String, url: String, position: Pos) -> Self {
+        Self {
+            text,
+            url,
+            position,
+        }
+    }
     /// Check if the link points to the given Markdown document
     pub fn points_to(&self, target: &MarkdownPath) -> bool {
         if let Some(path) = self.to_markdown_path(

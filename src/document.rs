@@ -9,9 +9,10 @@ use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterato
 use serde::Serialize;
 use tabled::Tabled;
 use thiserror::Error;
+use tower_lsp::lsp_types::PositionEncodingKind;
 use yaml_rust2::{Yaml, YamlLoader};
 
-use crate::{link::Link, path::MarkdownPath};
+use crate::{link::Link, path::MarkdownPath, pos::Pos};
 
 // See if there are any better solutions, and whether we want to use it in the first place.
 type HashMap<K, V> = BTreeMap<K, V>;
@@ -26,6 +27,8 @@ pub enum ParseError {
     FrontmatterParseFailed { path: PathBuf, reason: String },
     #[error("the key of the YAML frontmatter must be a string. `{key:?}` was received instead")]
     KeyIsNotString { key: Value },
+    #[error("failed to get the position because {reason}")]
+    PositionNotFound { reason: String },
 }
 
 #[derive(Clone, Debug, Serialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -208,22 +211,22 @@ impl Document {
     }
 
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
-        let path = MarkdownPath::new(base_path.clone(), path.clone()).map_err(|e| {
+        let parsed_path = MarkdownPath::new(base_path.clone(), path.clone()).map_err(|e| {
             ParseError::InvalidPath {
-                path: base_path.join(path),
+                path: base_path.join(path.clone()),
                 reason: e.to_string(),
             }
         })?;
 
         let mut document = Document {
-            path: path.clone(),
+            path: parsed_path.clone(),
             links: Vec::new(),
             metadata: HashMap::new(),
         };
 
         let contents =
-            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
-                path: path.path(),
+            fs::read_to_string(parsed_path.path()).map_err(|e| ParseError::FailedToReadFile {
+                path: parsed_path.path(),
                 reason: e.to_string(),
             })?;
 
@@ -247,11 +250,17 @@ impl Document {
                     if let Some((Event::Text(text), _)) = iter.next()
                         && let Some((Event::End(TagEnd::Link), end)) = iter.next()
                     {
-                        document.insert_link(Link {
-                            text: text.clone().into_string(),
-                            url: dest_url.into_string(),
-                            range: start.start..end.end,
-                        });
+                        let position =
+                            Pos::new(start.start..end.end, &path, PositionEncodingKind::UTF16)
+                                .map_err(|e| ParseError::PositionNotFound {
+                                    reason: e.to_string(),
+                                })?;
+
+                        document.insert_link(Link::new(
+                            text.clone().into_string(),
+                            dest_url.into_string(),
+                            position,
+                        ));
                     }
                 }
                 // Parse frontmatter
@@ -259,20 +268,20 @@ impl Document {
                     if let Some((Event::Text(text), _)) = iter.next() {
                         let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
                             .map_err(|e| ParseError::FrontmatterParseFailed {
-                                path: path.clone().path(),
+                                path: parsed_path.clone().path(),
                                 reason: e.to_string(),
                             })?;
                         let root =
                             parsed
                                 .first()
                                 .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                    path: path.clone().path(),
+                                    path: parsed_path.clone().path(),
                                     reason: "Cannot get the root of the frontmatter".into(),
                                 })?;
                         let hash =
                             root.as_hash()
                                 .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                    path: path.clone().path(),
+                                    path: parsed_path.clone().path(),
                                     reason: "Top-level is not a mapping".into(),
                                 })?;
                         hash.iter().for_each(|(k, v)| {

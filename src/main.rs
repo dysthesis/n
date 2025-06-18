@@ -3,6 +3,7 @@ mod document;
 mod link;
 mod lsp;
 mod path;
+mod pos;
 mod query;
 mod rank;
 mod search;

@@ -1,0 +1,242 @@
+use std::{fs, num::TryFromIntError, ops::Range, path::PathBuf};
+
+use serde::Serialize;
+use tower_lsp::lsp_types::{Position, PositionEncodingKind};
+
+// We define strong type aliases here to prevent mixups
+// https://stackoverflow.com/a/69443823
+
+/// The offset of the element from the start of the file in terms of bytes
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct Offset(usize);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct Row(usize);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct Column(usize);
+
+/// Helper to map between byte ranges and row/col ranges
+pub struct PosMapper {
+    text: String,
+    /// Bytes where new lines begin
+    line_starts: Vec<usize>,
+    encoding: PositionEncodingKind,
+}
+
+impl PosMapper {
+    pub fn new(text: String, encoding: PositionEncodingKind) -> Self {
+        let line_starts = {
+            let mut starts = vec![0];
+            starts.extend(
+                text.as_bytes()
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &b)| b == b'\n')
+                    .map(|(i, _)| i + 1),
+            );
+            starts
+        };
+
+        Self {
+            text,
+            line_starts,
+            encoding,
+        }
+    }
+    /// Converts a `Position` to a byte offset (`usize`).
+    ///
+    /// Returns `None` if the position's line is out of bounds.
+    /// Correctly clamps character offsets that are beyond the end of a line.
+    #[allow(unused)]
+    pub fn position_to_offset(&self, pos: &Position) -> Result<usize, PositionError> {
+        let line = pos.line.try_into().map_err(|e: TryFromIntError| {
+            PositionError::ConversionFromU32ToUSizeFailed {
+                value: pos.line,
+                reason: e.to_string(),
+            }
+        })?;
+        let line_start = *self
+            .line_starts
+            .get(line)
+            .ok_or(PositionError::LineNotFound { line })?;
+
+        // The LSP spec says if the character offset is greater than the line
+        // length, it defaults to the line length. We find the line's text
+        // and then perform the conversion, which naturally handles this.
+        let line_end = self
+            .line_starts
+            .get(pos.line as usize + 1)
+            .map_or(self.text.len(), |&end| end);
+
+        let line_text = &self.text[line_start..line_end];
+
+        let char_offset_bytes = if self.encoding == PositionEncodingKind::UTF16 {
+            let mut utf16_offset = 0;
+            let mut byte_offset = 0;
+            for ch in line_text.chars() {
+                if utf16_offset >= pos.character as usize {
+                    break;
+                }
+                // A single `char` can be one or two UTF-16 code units.
+                utf16_offset += ch.encode_utf16(&mut [0; 2]).len();
+                byte_offset += ch.len_utf8();
+            }
+            byte_offset
+        }
+        //  The LSP spec for UTF-8 and UTF-32 defines the `character` offset as a count of
+        //  Unicode scalar values (`char` in Rust). It is NOT a byte offset for UTF-8.
+        else if self.encoding == PositionEncodingKind::UTF8
+            || self.encoding == PositionEncodingKind::UTF32
+        {
+            line_text
+                .chars()
+                .take(pos.character as usize)
+                .map(|c| c.len_utf8())
+                .sum::<usize>()
+        } else {
+            return Err(PositionError::UnknownEncoding {
+                encoding: self.encoding.clone(),
+            });
+        };
+
+        // The final offset is the start of the line plus the calculated byte
+        // offset within that line. We clamp to `line_end` just in case,
+        // although the logic above should prevent exceeding it.
+        Ok((line_start + char_offset_bytes).min(line_end))
+    }
+
+    /// Converts a byte offset (`usize`) to an LSP `Position`.
+    ///
+    /// Returns `None` if the offset is out of bounds of the document text.
+    pub fn offset_to_position(&self, offset: usize) -> Result<Position, PositionError> {
+        if offset > self.text.len() {
+            return Err(PositionError::OffsetOutOfRange {
+                offset,
+                length: self.text.len(),
+            });
+        }
+
+        // `partition_point` is a highly efficient way to find the line number.
+        // It's a binary search for the last line start <= offset.
+        let line = self.line_starts.partition_point(|&start| start <= offset) - 1;
+
+        let line_start = self.line_starts[line];
+
+        // The text from the start of the line up to the target offset.
+        let text_before_offset_in_line = &self.text[line_start..offset];
+
+        let character = match self.encoding.as_str() {
+            "utf16" => text_before_offset_in_line.encode_utf16().count() as u32,
+
+            // For both UTF-8 and UTF-32, the `character` field
+            // is the number of Rust `char`s (Unicode scalar values).
+            "utf8" | "utf32" => text_before_offset_in_line.chars().count() as u32,
+
+            _ => {
+                return Err(PositionError::UnknownEncoding {
+                    encoding: self.encoding.clone(),
+                });
+            }
+        };
+
+        Ok(Position::new(line as u32, character))
+    }
+}
+
+/// The position of a text element
+#[derive(Debug, Serialize, Clone, PartialEq, Hash, Eq)]
+pub struct Pos {
+    offset_range: Range<Offset>,
+    row_range: Range<Row>,
+    col_range: Range<Column>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PositionError {
+    #[error("cannot open file `{}` because {}", path.to_string_lossy(), reason)]
+    CannotOpenFile { path: PathBuf, reason: String },
+    #[error("unknown encoding: `{}`", encoding.as_str())]
+    UnknownEncoding { encoding: PositionEncodingKind },
+    #[error("the offset `{offset}` is out of range; the document has a length of {length}")]
+    OffsetOutOfRange { offset: usize, length: usize },
+    #[error("the line `{line}` does not exist")]
+    LineNotFound { line: usize },
+    #[error("failed to convert from the u32 value {value} to usize because {reason}")]
+    ConversionFromU32ToUSizeFailed { value: u32, reason: String },
+}
+
+impl Pos {
+    pub fn new(
+        offset_range: Range<usize>,
+        path: &PathBuf,
+        encoding: PositionEncodingKind,
+    ) -> Result<Self, PositionError> {
+        let text = fs::read_to_string(path).map_err(|e| PositionError::CannotOpenFile {
+            path: path.clone(),
+            reason: e.to_string(),
+        })?;
+        let mapper = PosMapper::new(text, encoding);
+        let position_range = mapper.offset_to_position(offset_range.start)?
+            ..mapper.offset_to_position(offset_range.start)?;
+
+        let row_start = position_range
+            .start
+            .line
+            .try_into()
+            .map_err(
+                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
+                    value: position_range.start.line,
+                    reason: e.to_string(),
+                },
+            )?;
+        let row_end = position_range
+            .end
+            .line
+            .try_into()
+            .map_err(
+                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
+                    value: position_range.start.line,
+                    reason: e.to_string(),
+                },
+            )?;
+        let row_range = Row(row_start)..Row(row_end);
+        let col_start =
+            position_range
+                .start
+                .character
+                .try_into()
+                .map_err(
+                    |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
+                        value: position_range.start.line,
+                        reason: e.to_string(),
+                    },
+                )?;
+        let col_end = position_range
+            .end
+            .character
+            .try_into()
+            .map_err(
+                |e: TryFromIntError| PositionError::ConversionFromU32ToUSizeFailed {
+                    value: position_range.start.line,
+                    reason: e.to_string(),
+                },
+            )?;
+        let col_range = Column(col_start)..Column(col_end);
+        let offset_range = Offset(offset_range.start)..Offset(offset_range.end);
+        Ok(Self {
+            offset_range,
+            row_range,
+            col_range,
+        })
+    }
+
+    pub fn offset_range(&self) -> Range<Offset> {
+        self.offset_range.clone()
+    }
+
+    pub fn col_range(&self) -> Range<Column> {
+        self.col_range.clone()
+    }
+    pub fn row_range(&self) -> Range<Row> {
+        self.row_range.clone()
+    }
+}
