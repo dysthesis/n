@@ -137,10 +137,13 @@ impl PosMapper {
 
         // `partition_point` is a highly efficient way to find the line number of the offset. It's
         // a binary search for the last line start <= offset.
-        let line_start_idx = self.line_starts.partition_point(|&start| start <= offset) - 1;
+        // Find the line number the cursor is at...
+        let line_start_idx = self.line_starts.partition_point(|&start| start <= offset) /* convert from 1-index to 0-index */ - 1;
+        // ...and the first character of that line.
         let line_start = self.line_starts[line_start_idx];
 
-        // The text from the start of the line up to the target offset.
+        // The text from the start of the line up to the target offset. We will use it to calculate
+        // the column, as it may depend on the UTF encoding.
         let text_before_offset_in_line = &self.text[line_start..offset];
 
         let character = if self.encoding == PositionEncodingKind::UTF16 {
@@ -158,7 +161,7 @@ impl PosMapper {
             });
         };
 
-        Ok((Row(line_start_idx), Column(character)))
+        Ok((Row(line_start_idx + 1), Column(character)))
     }
 }
 
