@@ -81,7 +81,7 @@ async fn main() {
                 .collect();
             let matches: Vec<&Document> = bm25.iter().map(|(doc, _)| doc).collect();
 
-            let rank: HashMap<Document, f32> = matches
+            let rank: Vec<(Document, f32)> = matches
                 .iter()
                 .zip(rank(matches.clone(), vault.path(), MAX_ITER, TOLERANCE))
                 .map(|(k, v)| ((**k).clone(), v.into()))
@@ -103,7 +103,16 @@ async fn main() {
             let mut res: Vec<SearchResult> = bm25
                 .into_iter()
                 .map(|(doc, bm25)| {
-                    let rank = rank.get(&doc).unwrap();
+                    let rank = rank
+                        .iter()
+                        .find_map(|(k, v)| {
+                            if k.path() == doc.path() {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
                     SearchResult {
                         document: doc.clone(),
                         bm25,

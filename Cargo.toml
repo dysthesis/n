@@ -1,6 +1,6 @@
 [dependencies]
 frizbee = "0.4.3"
-dashmap = "6.1.0"
+dashmap = {version = "6.1.0", features = ["serde", "rayon", "inline"]}
 lazy_static = "1.5.0"
 lexopt = "0.3.1"
 nom = "8.0.0"

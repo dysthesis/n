@@ -136,7 +136,7 @@ impl Vault {
         ))
     }
 
-    pub fn search(&self, query: String) -> HashMap<Document, f32> {
+    pub fn search(&self, query: String) -> Vec<(Document, f32)> {
         let documents = &self.documents;
         documents
             .par_iter()

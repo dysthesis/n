@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, fmt::Display, fs, hash::Hash, path::PathBuf};
 
+use dashmap::DashSet;
 use owo_colors::OwoColorize;
 use pulldown_cmark::{
     Event, LinkType, MetadataBlockKind, Options, Parser, Tag, TagEnd, TextMergeStream,
@@ -120,10 +121,10 @@ impl From<Yaml> for Value {
 
 /// A single Markdown document
 /// TODO: Implement metadata parsing
-#[derive(Debug, Serialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Document {
     path: MarkdownPath,
-    links: Vec<Link>,
+    links: DashSet<Link>,
     metadata: HashMap<String, Value>,
     #[serde(skip_serializing)]
     pub rope: Rope,
@@ -150,10 +151,10 @@ impl Document {
     }
     #[inline]
     pub fn insert_link(&mut self, link: Link) {
-        self.links.push(link);
+        self.links.insert(link);
     }
     #[inline]
-    pub fn links(&self) -> Vec<Link> {
+    pub fn links(&self) -> DashSet<Link> {
         self.links.clone()
     }
     #[inline]
@@ -213,6 +214,72 @@ impl Document {
         Ok(res)
     }
 
+    pub fn parse(&mut self) -> Result<(), ParseError> {
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+        let text = self.rope.to_string();
+        let mut iter = TextMergeWithOffset::new(Parser::new_ext(&text, options).into_offset_iter());
+
+        while let Some(event) = iter.next() {
+            match event {
+                // Parse link
+                (
+                    Event::Start(Tag::Link {
+                        link_type: LinkType::Inline,
+                        dest_url,
+                        title: _,
+                        id: _,
+                    }),
+                    range,
+                ) => {
+                    if let Some((Event::Text(text), _)) = iter.next()
+                        && let Some((Event::End(TagEnd::Link), _)) = iter.next()
+                    {
+                        let position =
+                            Pos::new(range, &self.path().path(), PositionEncodingKind::UTF16)
+                                .map_err(|e| ParseError::PositionNotFound {
+                                    reason: e.to_string(),
+                                })?;
+
+                        self.insert_link(Link::new(
+                            text.clone().into_string(),
+                            dest_url.into_string(),
+                            position,
+                        ));
+                    }
+                }
+                // Parse frontmatter
+                (Event::Start(Tag::MetadataBlock(MetadataBlockKind::YamlStyle)), _) => {
+                    if let Some((Event::Text(text), _)) = iter.next() {
+                        let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
+                            .map_err(|e| ParseError::FrontmatterParseFailed {
+                                path: self.path().path(),
+                                reason: e.to_string(),
+                            })?;
+                        let root =
+                            parsed
+                                .first()
+                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                    path: self.path().path(),
+                                    reason: "Cannot get the root of the frontmatter".into(),
+                                })?;
+                        let hash =
+                            root.as_hash()
+                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
+                                    path: self.path().path(),
+                                    reason: "Top-level is not a mapping".into(),
+                                })?;
+                        hash.iter().for_each(|(k, v)| {
+                            _ = self.insert_metadata(k.to_owned(), v.to_owned());
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, ParseError> {
         let parsed_path = MarkdownPath::new(base_path.clone(), path.clone()).map_err(|e| {
             ParseError::InvalidPath {
@@ -231,72 +298,11 @@ impl Document {
 
         let mut document = Document {
             path: parsed_path.clone(),
-            links: Vec::new(),
+            links: DashSet::new(),
             metadata: HashMap::new(),
             rope,
         };
-
-        let mut options = Options::empty();
-        options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
-        let mut iter =
-            TextMergeWithOffset::new(Parser::new_ext(&contents, options).into_offset_iter());
-
-        while let Some(event) = iter.next() {
-            match event {
-                // Parse link
-                (
-                    Event::Start(Tag::Link {
-                        link_type: LinkType::Inline,
-                        dest_url,
-                        title: _,
-                        id: _,
-                    }),
-                    range,
-                ) => {
-                    if let Some((Event::Text(text), _)) = iter.next()
-                        && let Some((Event::End(TagEnd::Link), _)) = iter.next()
-                    {
-                        let position = Pos::new(range, &path, PositionEncodingKind::UTF16)
-                            .map_err(|e| ParseError::PositionNotFound {
-                                reason: e.to_string(),
-                            })?;
-
-                        document.insert_link(Link::new(
-                            text.clone().into_string(),
-                            dest_url.into_string(),
-                            position,
-                        ));
-                    }
-                }
-                // Parse frontmatter
-                (Event::Start(Tag::MetadataBlock(MetadataBlockKind::YamlStyle)), _) => {
-                    if let Some((Event::Text(text), _)) = iter.next() {
-                        let parsed = YamlLoader::load_from_str(text.clone().into_string().as_str())
-                            .map_err(|e| ParseError::FrontmatterParseFailed {
-                                path: parsed_path.clone().path(),
-                                reason: e.to_string(),
-                            })?;
-                        let root =
-                            parsed
-                                .first()
-                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                    path: parsed_path.clone().path(),
-                                    reason: "Cannot get the root of the frontmatter".into(),
-                                })?;
-                        let hash =
-                            root.as_hash()
-                                .ok_or_else(|| ParseError::FrontmatterParseFailed {
-                                    path: parsed_path.clone().path(),
-                                    reason: "Top-level is not a mapping".into(),
-                                })?;
-                        hash.iter().for_each(|(k, v)| {
-                            _ = document.insert_metadata(k.to_owned(), v.to_owned());
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
+        let _ = document.parse();
 
         Ok(document)
     }

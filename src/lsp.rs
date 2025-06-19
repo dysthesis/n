@@ -479,7 +479,7 @@ impl LanguageServer for Backend {
             })
         }
 
-        let uri = params.text_document.uri;
+        let uri = params.text_document.uri.clone();
         self.client
             .log_message(MessageType::INFO, format!("File {uri} changed!"))
             .await;
@@ -503,7 +503,14 @@ impl LanguageServer for Backend {
                     }
                 }
             }
+            let _ = doc.parse();
         }
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Changed file {}", params.text_document.uri),
+            )
+            .await;
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.documents.remove(&params.text_document.uri);
