@@ -1,7 +1,22 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{document::Document, path::MarkdownPath};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
+
+#[derive(Debug)]
+pub struct Rank(f32);
+impl From<Rank> for f32 {
+    fn from(Rank(value): Rank) -> Self {
+        value
+    }
+}
+
+impl Display for Rank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Rank(val) = self;
+        write!(f, "{val}")
+    }
+}
 
 /// Rank the vault using the PageRank algoritm, where the ranking of a page `A` is given by
 ///
@@ -22,7 +37,7 @@ use std::{collections::HashMap, path::PathBuf};
 /// - https://cs.brown.edu/courses/cs016/static/files/assignments/projects/GraphHelpSession.pdf
 /// - https://web.stanford.edu/class/cs315b/assignment3.html
 /// - https://pi.math.cornell.edu/~mec/Winter2009/RalucaRemus/Lecture3/lecture3.html
-pub fn rank(docs: Vec<&Document>, base_path: PathBuf, num_iter: usize, tol: f32) -> Vec<f32> {
+pub fn rank(docs: Vec<&Document>, base_path: PathBuf, num_iter: usize, tol: f32) -> Vec<Rank> {
     /// The dampening factor of PageRank. This reflects the probability that the user exit the
     /// current document and 'teleport' to a new one.
     pub const D: f32 = 0.85;
@@ -95,5 +110,6 @@ pub fn rank(docs: Vec<&Document>, base_path: PathBuf, num_iter: usize, tol: f32)
             break;
         }
     }
-    rank
+
+    rank.into_iter().map(Rank).collect()
 }

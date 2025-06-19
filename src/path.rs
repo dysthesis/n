@@ -10,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+use url::Url;
 
 #[derive(Debug, Error)]
 pub enum PathError {
@@ -104,6 +105,14 @@ impl Display for MarkdownPath {
             .bold()
             .to_string();
         write!(f, "{display}")
+    }
+}
+
+impl TryFrom<MarkdownPath> for Url {
+    type Error = ();
+
+    fn try_from(value: MarkdownPath) -> Result<Self, Self::Error> {
+        Url::from_file_path(value.path())
     }
 }
 

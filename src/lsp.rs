@@ -22,18 +22,21 @@ use tower_lsp::{
 use tracing::{info, trace, warn};
 
 use crate::{
+    document::Document,
     link::Link,
-    path::MarkdownPath,
     pos::{Column, Row},
-    vault::Vault,
+    rank::Rank,
 };
 
 #[derive(Debug)]
 pub struct Backend {
     client: Client,
     /// Maps a Url to the document
-    documents: DashMap<Url, Rope>,
-    vault: Vault,
+    documents: DashMap<Url, Document>,
+    // TODO: This is a global PageRank for now; implement personalised PageRank so that we can
+    // evaluate how relevant some other linked note is to the one currently open.
+    ranks: DashMap<Url, Rank>,
+    root_path: PathBuf,
 }
 
 // Helper functions
@@ -117,28 +120,28 @@ impl LanguageServer for Backend {
     ) -> jsonrpc::Result<Option<CompletionResponse>> {
         // Get document, cursor position, and trigger context
         let current_uri = &params.text_document_position.text_document.uri;
-        let rope = match self.documents.get(current_uri) {
+        let doc = match self.documents.get(current_uri) {
             Some(r) => r.clone(),
             None => return Ok(None),
         };
         let cursor_pos = params.text_document_position.position;
-        let cursor_char = lsp_pos_to_char(&rope, cursor_pos);
+        let cursor_char = lsp_pos_to_char(&doc.rope, cursor_pos);
 
         let mut start_char = 0;
         let mut query = None;
         let search_limit = cursor_char.saturating_sub(200);
 
         for i in (search_limit..cursor_char).rev() {
-            let ch = rope.char(i);
+            let ch = doc.rope.char(i);
 
             if ch == ']' || ch == '\n' {
                 break;
             }
 
-            if ch == '[' && i > 0 && rope.char(i - 1) == '[' {
+            if ch == '[' && i > 0 && doc.rope.char(i - 1) == '[' {
                 start_char = i - 1;
 
-                query = Some(rope.slice(start_char + 2..cursor_char).to_string());
+                query = Some(doc.rope.slice(start_char + 2..cursor_char).to_string());
                 break; // We found our trigger, no need to look further.
             }
         }
@@ -150,8 +153,7 @@ impl LanguageServer for Backend {
         };
 
         let candidates: Vec<(String, PathBuf)> = self
-            .vault
-            .documents()
+            .documents
             .iter()
             .map(|doc| (doc.name(), doc.path().path()))
             .collect();
@@ -184,20 +186,22 @@ impl LanguageServer for Backend {
 
         let mut end_char = cursor_char;
 
-        if cursor_char + 2 <= rope.len_chars() && rope.slice(cursor_char..cursor_char + 2) == "]]" {
+        if cursor_char + 2 <= doc.rope.len_chars()
+            && doc.rope.slice(cursor_char..cursor_char + 2) == "]]"
+        {
             end_char = cursor_char + 2;
         }
 
         let edit_range = Range {
-            start: char_idx_to_position(&rope, start_char),
-            end: char_idx_to_position(&rope, end_char),
+            start: char_idx_to_position(&doc.rope, start_char),
+            end: char_idx_to_position(&doc.rope, end_char),
         };
 
         let items: Vec<CompletionItem> = matches
             .into_iter()
             .map(|(name, path, _score)| {
                 let rel_path =
-                    pathdiff::diff_paths(path.clone(), self.vault.path()).unwrap_or_default();
+                    pathdiff::diff_paths(path.clone(), self.root_path.clone()).unwrap_or_default();
 
                 /// https://url.spec.whatwg.org/#fragment-percent-encode-set
                 const FRAGMENT: &AsciiSet =
@@ -240,19 +244,11 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> jsonrpc::Result<Option<GotoDefinitionResponse>> {
-        let path = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .to_file_path()
-            .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+        let url = params.text_document_position_params.text_document.uri;
         self.client
             .log_message(
                 MessageType::INFO,
-                format!(
-                    "Found the path of the current document: `{}`",
-                    &path.display()
-                ),
+                format!("Found the path of the current document: `{:?}`", &url),
             )
             .await;
 
@@ -267,22 +263,22 @@ impl LanguageServer for Backend {
         // NOTE: This implementation makes the assumption that the file being opened is inside the
         // current vault. It crashes out otherwise.
         // TODO: See how the likes of zk and markdown-oxide handles out-of-vault documents.
-        let path = if let Ok(path) = MarkdownPath::new(self.vault.path(), path.clone()) {
-            path
-        } else {
-            self.client
-                .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
-                .await;
-            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
-        };
+        // let path = if let Ok(path) = MarkdownPath::new(self.root_path.clone(), path.clone()) {
+        //     path
+        // } else {
+        //     self.client
+        //         .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
+        //         .await;
+        //     return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
+        // };
 
         self.client
             .log_message(MessageType::INFO, "The path is a valid markdown path")
             .await;
 
         let document = self
-            .vault
-            .get_document(&path)
+            .documents
+            .get(&url)
             .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
 
         self.client
@@ -320,7 +316,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let path = if let Some(path) = self.vault.resolve_link(link.clone()) {
+        let path = if let Some(path) = link.to_markdown_path(self.root_path.clone()) {
             path
         } else {
             self.client
@@ -360,37 +356,21 @@ impl LanguageServer for Backend {
             )
             .await;
 
-        let path = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .to_file_path()
-            .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+        let url = params.text_document_position_params.text_document.uri;
         self.client
             .log_message(
                 MessageType::INFO,
-                format!(
-                    "Found the path of the current document: `{}`",
-                    &path.display()
-                ),
+                format!("Found the path of the current document: `{:?}`", &url),
             )
             .await;
-        let path = if let Ok(path) = MarkdownPath::new(self.vault.path(), path.clone()) {
-            path
-        } else {
-            self.client
-                .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
-                .await;
-            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
-        };
 
         self.client
             .log_message(MessageType::INFO, "The path is a valid markdown path")
             .await;
 
         let document = self
-            .vault
-            .get_document(&path)
+            .documents
+            .get(&url)
             .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
 
         self.client
@@ -425,7 +405,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let destination = if let Some(path) = self.vault.resolve_link(link.clone()) {
+        let destination = if let Some(path) = link.to_markdown_path(self.root_path.clone()) {
             path
         } else {
             self.client
@@ -437,10 +417,23 @@ impl LanguageServer for Backend {
             return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
         };
 
-        let content = MarkupContent {
+        let content = format!(
+            "Rank: {}\n{}",
+            self.ranks
+                .get(
+                    &destination
+                        .clone()
+                        .try_into()
+                        .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?,
+                )
+                .unwrap()
+                .value(),
+            fs::read_to_string(destination.path())
+                .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?
+        );
+        let hover_content = MarkupContent {
             kind: MarkupKind::Markdown,
-            value: fs::read_to_string(destination.path())
-                .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?,
+            value: content,
         };
         let row_range: std::ops::Range<Row> = link.pos().row_range();
         let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
@@ -458,19 +451,20 @@ impl LanguageServer for Backend {
         };
 
         Ok(Some(Hover {
-            contents: HoverContents::Markup(content),
+            contents: HoverContents::Markup(hover_content),
             range: Some(range),
         }))
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let text = params.text_document.text;
-        let rope = Rope::from(text);
         let uri = params.text_document.uri;
+        // TODO: Better error handling
+        let doc = Document::new(self.root_path.clone(), uri.path().into()).unwrap();
+
         self.client
             .log_message(MessageType::INFO, format!("File {uri} opened!"))
             .await;
-        self.documents.insert(uri, rope);
+        self.documents.insert(uri, doc);
     }
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         pub fn position_to_offset(rope: &Rope, position: Position) -> Option<usize> {
@@ -489,23 +483,23 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, format!("File {uri} changed!"))
             .await;
-        if let Some(mut rope) = self.documents.get_mut(&uri) {
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
             for change in params.content_changes {
                 let TextDocumentContentChangeEvent { range, text, .. } = change;
                 match range {
                     // incremental change
                     Some(Range { start, end }) => {
-                        let start = position_to_offset(&rope, start);
-                        let end = position_to_offset(&rope, end);
+                        let start = position_to_offset(&doc.rope, start);
+                        let end = position_to_offset(&doc.rope, end);
                         if let (Some(s), Some(e)) = (start, end) {
-                            rope.remove(s..e);
-                            rope.insert(s, &text);
+                            doc.rope.remove(s..e);
+                            doc.rope.insert(s, &text);
                         }
                     }
 
                     // full content change
                     None => {
-                        *rope = Rope::from(text);
+                        doc.rope = Rope::from(text);
                     }
                 }
             }
@@ -523,15 +517,20 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
-    pub async fn run(vault: Vault) {
+    pub async fn run(
+        documents: DashMap<Url, Document>,
+        ranks: DashMap<Url, Rank>,
+        root_path: PathBuf,
+    ) {
         trace!("Initialising LSP backend for n...");
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::new(|client| Backend {
             client,
-            documents: DashMap::new(),
-            vault,
+            documents,
+            ranks,
+            root_path,
         });
         info!("Initialised LSP backend!");
 

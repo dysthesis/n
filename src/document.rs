@@ -6,6 +6,7 @@ use pulldown_cmark::{
     TextMergeWithOffset,
 };
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use ropey::Rope;
 use serde::Serialize;
 use tabled::Tabled;
 use thiserror::Error;
@@ -124,6 +125,8 @@ pub struct Document {
     path: MarkdownPath,
     links: Vec<Link>,
     metadata: HashMap<String, Value>,
+    #[serde(skip_serializing)]
+    pub rope: Rope,
 }
 
 impl Document {
@@ -218,17 +221,20 @@ impl Document {
             }
         })?;
 
-        let mut document = Document {
-            path: parsed_path.clone(),
-            links: Vec::new(),
-            metadata: HashMap::new(),
-        };
-
         let contents =
             fs::read_to_string(parsed_path.path()).map_err(|e| ParseError::FailedToReadFile {
                 path: parsed_path.path(),
                 reason: e.to_string(),
             })?;
+
+        let rope = Rope::from_str(&contents);
+
+        let mut document = Document {
+            path: parsed_path.clone(),
+            links: Vec::new(),
+            metadata: HashMap::new(),
+            rope,
+        };
 
         let mut options = Options::empty();
         options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);

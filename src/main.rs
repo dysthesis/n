@@ -12,6 +12,7 @@ mod vault;
 
 use std::collections::HashMap;
 
+use dashmap::DashMap;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 
@@ -47,8 +48,24 @@ async fn main() {
             tracing::subscriber::set_global_default(subscriber)
                 .expect("setting default subscriber failed");
 
+            let documents: DashMap<tower_lsp::lsp_types::Url, Document> = vault
+                .documents()
+                .into_iter()
+                .filter_map(|doc| {
+                    let url = doc.path().try_into().ok()?;
+                    Some((url, doc.clone()))
+                })
+                .collect();
+            let ranks = vault
+                .rank()
+                .into_iter()
+                .filter_map(|(doc, rank)| {
+                    let url = doc.path().try_into().ok()?;
+                    Some((url, rank))
+                })
+                .collect();
             // Initialise the LSP backend
-            Backend::run(vault).await;
+            Backend::run(documents, ranks, vault.path()).await;
         }
         Subcommand::New { template, path } => {
             let path = vault.path().join(format!("{path}.md"));
@@ -67,7 +84,7 @@ async fn main() {
             let rank: HashMap<Document, f32> = matches
                 .iter()
                 .zip(rank(matches.clone(), vault.path(), MAX_ITER, TOLERANCE))
-                .map(|(k, v)| ((**k).clone(), v))
+                .map(|(k, v)| ((**k).clone(), v.into()))
                 .collect();
 
             // How much should the BM25 score count over the PageRank score?
@@ -193,10 +210,9 @@ async fn main() {
         }
         Subcommand::List => {
             let mut res: Vec<(Document, f32)> = vault
-                .documents()
+                .rank()
                 .into_iter()
-                .zip(rank(vault.documents(), vault.path(), MAX_ITER, TOLERANCE))
-                .map(|(k, v)| (k.to_owned(), v))
+                .map(|(doc, rank)| (doc, rank.into()))
                 .collect();
             res.sort_unstable_by(|a, b| {
                 b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Greater)

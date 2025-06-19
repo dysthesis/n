@@ -5,7 +5,16 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{document::Document, link::Link, path::MarkdownPath, query::Query, search::Corpus};
+use crate::{
+    MAX_ITER, TOLERANCE,
+    document::Document,
+    link::Link,
+    path::MarkdownPath,
+    query::Query,
+    rank::{self, Rank, rank},
+    search::Corpus,
+    vault,
+};
 
 /// A collection of notes
 #[derive(Debug, Serialize)]
@@ -159,6 +168,14 @@ impl Vault {
             .par_iter()
             .filter(|doc| query.matches(doc))
             .map(|doc| doc.to_owned())
+            .collect()
+    }
+
+    pub fn rank(&self) -> Vec<(Document, Rank)> {
+        self.documents()
+            .into_iter()
+            .zip(rank(self.documents(), self.path(), MAX_ITER, TOLERANCE))
+            .map(|(k, v)| (k.to_owned(), v.into()))
             .collect()
     }
 }
