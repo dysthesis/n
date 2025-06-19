@@ -1,6 +1,6 @@
 //! # LSP module.
 
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use dashmap::DashMap;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
@@ -11,11 +11,12 @@ use tower_lsp::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
         CompletionResponse, CompletionTextEdit, DidChangeTextDocumentParams,
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
-        GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
-        InitializedParams, InsertTextFormat, Location, MessageType, OneOf, Position,
+        GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+        HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+        InsertTextFormat, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position,
         PositionEncodingKind, Range, ServerCapabilities, ServerInfo,
         TextDocumentContentChangeEvent, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-        Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        Url,
     },
 };
 use tracing::{info, trace, warn};
@@ -35,6 +36,42 @@ pub struct Backend {
     vault: Vault,
 }
 
+// Helper functions
+// TODO: Encapsulate into some type
+#[inline]
+/// Convert an LSP Position (UTF-16 based) into a Rope char index.
+fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
+    // Get the index (in chars) of the start of the given line.
+    let line_start_char = rope.line_to_char(pos.line as usize);
+    // Iterate over the line’s chars, accumulating UTF-16 length.
+    let mut utf16_units = 0;
+    let line = rope.line(pos.line as usize);
+    for (i, ch) in line.chars().enumerate() {
+        if utf16_units == pos.character as usize {
+            return line_start_char + i;
+        }
+        utf16_units += ch.len_utf16();
+    }
+    // If the requested character is past EOL, clamp to line end.
+    line_start_char + line.len_chars()
+}
+#[inline]
+// Convert a Rope char index to an LSP `Position` (UTF-16 code units).
+fn char_idx_to_position(rope: &Rope, char_idx: usize) -> Position {
+    // Which line is this?
+    let line = rope.char_to_line(char_idx);
+    // What char index is the start of that line?
+    let line_start_char = rope.line_to_char(line);
+    // How many UTF-16 units up to the offset and line start?
+    let utf16_offset = rope.char_to_utf16_cu(char_idx);
+    let utf16_line = rope.char_to_utf16_cu(line_start_char);
+
+    Position {
+        line: line as u32,
+        character: (utf16_offset - utf16_line) as u32,
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> jsonrpc::Result<InitializeResult> {
@@ -48,14 +85,8 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
-                        supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
-                    }),
-                    file_operations: None,
-                }),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec!["[[]]".to_string(), "[[".to_string()]),
@@ -84,40 +115,6 @@ impl LanguageServer for Backend {
         &self,
         params: CompletionParams,
     ) -> jsonrpc::Result<Option<CompletionResponse>> {
-        #[inline]
-        /// Convert an LSP Position (UTF-16 based) into a Rope char index.
-        fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
-            // Get the index (in chars) of the start of the given line.
-            let line_start_char = rope.line_to_char(pos.line as usize);
-            // Iterate over the line’s chars, accumulating UTF-16 length.
-            let mut utf16_units = 0;
-            let line = rope.line(pos.line as usize);
-            for (i, ch) in line.chars().enumerate() {
-                if utf16_units == pos.character as usize {
-                    return line_start_char + i;
-                }
-                utf16_units += ch.len_utf16();
-            }
-            // If the requested character is past EOL, clamp to line end.
-            line_start_char + line.len_chars()
-        }
-        #[inline]
-        // Convert a Rope char index to an LSP `Position` (UTF-16 code units).
-        fn char_idx_to_position(rope: &Rope, char_idx: usize) -> Position {
-            // Which line is this?
-            let line = rope.char_to_line(char_idx);
-            // What char index is the start of that line?
-            let line_start_char = rope.line_to_char(line);
-            // How many UTF-16 units up to the offset and line start?
-            let utf16_offset = rope.char_to_utf16_cu(char_idx);
-            let utf16_line = rope.char_to_utf16_cu(line_start_char);
-
-            Position {
-                line: line as u32,
-                character: (utf16_offset - utf16_line) as u32,
-            }
-        }
-
         // Get document, cursor position, and trigger context
         let current_uri = &params.text_document_position.text_document.uri;
         let rope = match self.documents.get(current_uri) {
@@ -352,6 +349,118 @@ impl LanguageServer for Backend {
                 },
             },
         })))
+    }
+
+    async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+        let cursor_pos = params.text_document_position_params.position;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("The cursor is at {:?}", &cursor_pos),
+            )
+            .await;
+
+        let path = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_file_path()
+            .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "Found the path of the current document: `{}`",
+                    &path.display()
+                ),
+            )
+            .await;
+        let path = if let Ok(path) = MarkdownPath::new(self.vault.path(), path.clone()) {
+            path
+        } else {
+            self.client
+                .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
+                .await;
+            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
+        };
+
+        self.client
+            .log_message(MessageType::INFO, "The path is a valid markdown path")
+            .await;
+
+        let document = self
+            .vault
+            .get_document(&path)
+            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Obtained valid document from the vault: {document:?}"),
+            )
+            .await;
+
+        let link = document.links().into_iter().find(|link: &Link| {
+            // TODO: How do you make a closure async?
+            // self.client
+            //     .log_message(MessageType::INFO, format!("Checking link {:?}", &link))
+            //     .await;
+            let row_range: std::ops::Range<Row> = link.pos().row_range();
+            let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
+            let col_range: std::ops::Range<Column> = link.pos().col_range();
+            let col_range: std::ops::Range<usize> = col_range.start.into()..col_range.end.into();
+
+            // TODO: Use `.try_into()` instead of `as`, and implement en appropriate error
+            // variant for it.
+            // Or better yet, refactor Pos to keep track of u32 instead of usize
+            row_range.start <= cursor_pos.line as usize
+                && row_range.end >= cursor_pos.line as usize
+                && col_range.start <= cursor_pos.character as usize
+                && col_range.end >= cursor_pos.character as usize
+        });
+
+        let link = if let Some(link) = link {
+            link
+        } else {
+            return Ok(None);
+        };
+
+        let destination = if let Some(path) = self.vault.resolve_link(link.clone()) {
+            path
+        } else {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Cannot resolve link at `{link:?}`"),
+                )
+                .await;
+            return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
+        };
+
+        let content = MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: fs::read_to_string(destination.path())
+                .map_err(|_| jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?,
+        };
+        let row_range: std::ops::Range<Row> = link.pos().row_range();
+        let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
+        let col_range: std::ops::Range<Column> = link.pos().col_range();
+        let col_range: std::ops::Range<usize> = col_range.start.into()..col_range.end.into();
+        let range = Range {
+            start: Position {
+                line: row_range.start as u32,
+                character: col_range.start as u32,
+            },
+            end: Position {
+                line: row_range.end as u32,
+                character: col_range.end as u32,
+            },
+        };
+
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(content),
+            range: Some(range),
+        }))
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
