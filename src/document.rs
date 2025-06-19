@@ -169,13 +169,8 @@ impl Document {
     }
 
     pub fn stripped(&self) -> Result<String, ParseError> {
+        let contents = self.rope.to_string();
         let mut res = String::new();
-        let path = &self.path;
-        let contents =
-            fs::read_to_string(path.path()).map_err(|e| ParseError::FailedToReadFile {
-                path: path.path(),
-                reason: e.to_string(),
-            })?;
 
         let mut options = Options::empty();
         options.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
