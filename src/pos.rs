@@ -26,13 +26,24 @@ impl From<Row> for usize {
         val
     }
 }
+impl From<Position> for Row {
+    fn from(value: Position) -> Self {
+        Row(value.line as usize)
+    }
+}
+
+impl From<Position> for Col {
+    fn from(value: Position) -> Self {
+        Col(value.character as usize)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
-pub struct Column(usize);
-impl From<Column> for usize {
-    fn from(value: Column) -> Self {
-        let Column(val) = value;
+pub struct Col(usize);
+impl From<Col> for usize {
+    fn from(value: Col) -> Self {
+        let Col(val) = value;
         val
     }
 }
@@ -127,7 +138,7 @@ impl PosMapper {
     /// Converts a byte offset (`usize`) to an LSP `Position`.
     ///
     /// Returns `None` if the offset is out of bounds of the document text.
-    pub fn offset_to_position(&self, offset: usize) -> Result<(Row, Column), PositionError> {
+    pub fn offset_to_position(&self, offset: usize) -> Result<(Row, Col), PositionError> {
         if offset > self.text.len() {
             return Err(PositionError::OffsetOutOfRange {
                 offset,
@@ -163,7 +174,7 @@ impl PosMapper {
 
         // TODO: Figure out why I can only adjust the row index here, and not above where
         // `line_start_idx` was defined.
-        Ok((Row(line_start_idx + 1), Column(character)))
+        Ok((Row(line_start_idx + 1), Col(character)))
     }
 }
 
@@ -172,7 +183,7 @@ impl PosMapper {
 pub struct Pos {
     offset_range: Range<Offset>,
     row_range: Range<Row>,
-    col_range: Range<Column>,
+    col_range: Range<Col>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -190,6 +201,17 @@ pub enum PositionError {
 }
 
 impl Pos {
+    pub fn from_position(position: &Position, mapper: &PosMapper) -> Result<Self, PositionError> {
+        let offset = mapper.position_to_offset(position)?;
+        let offset_range = Offset(offset)..Offset(offset);
+        let row_range = Row(position.line as usize)..Row(position.line as usize);
+        let col_range = Col(position.character as usize)..Col(position.character as usize);
+        Ok(Self {
+            offset_range,
+            row_range,
+            col_range,
+        })
+    }
     pub fn new(
         offset_range: Range<usize>,
         path: &PathBuf,
@@ -209,7 +231,7 @@ impl Pos {
 
         let col_start = position_range.start.1.into();
         let col_end = position_range.end.1.into();
-        let col_range = Column(col_start)..Column(col_end);
+        let col_range = Col(col_start)..Col(col_end);
         let offset_range = Offset(offset_range.start)..Offset(offset_range.end);
         Ok(Self {
             offset_range,
@@ -223,7 +245,7 @@ impl Pos {
         self.offset_range.clone()
     }
 
-    pub fn col_range(&self) -> Range<Column> {
+    pub fn col_range(&self) -> Range<Col> {
         self.col_range.clone()
     }
     pub fn row_range(&self) -> Range<Row> {

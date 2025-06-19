@@ -14,7 +14,11 @@ use thiserror::Error;
 use tower_lsp::lsp_types::PositionEncodingKind;
 use yaml_rust2::{Yaml, YamlLoader};
 
-use crate::{link::Link, path::MarkdownPath, pos::Pos};
+use crate::{
+    link::Link,
+    path::MarkdownPath,
+    pos::{Col, Pos, Row},
+};
 
 // See if there are any better solutions, and whether we want to use it in the first place.
 type HashMap<K, V> = BTreeMap<K, V>;
@@ -157,6 +161,27 @@ impl Document {
     pub fn links(&self) -> DashSet<Link> {
         self.links.clone()
     }
+
+    #[inline]
+    pub fn get_link_at(&self, row: Row, col: Col) -> Option<Link> {
+        self.links().into_iter().find(|link: &Link| {
+            // TODO: How do you make a closure async?
+            // self.client
+            //     .log_message(MessageType::INFO, format!("Checking link {:?}", &link))
+            //     .await;
+            let row_range: std::ops::Range<Row> = link.pos().row_range();
+            let col_range: std::ops::Range<Col> = link.pos().col_range();
+
+            // TODO: Use `.try_into()` instead of `as`, and implement en appropriate error
+            // variant for it.
+            // Or better yet, refactor Pos to keep track of u32 instead of usize
+            row_range.start <= row
+                && row_range.end >= row
+                && col_range.start <= col
+                && col_range.end >= col
+        })
+    }
+
     #[inline]
     pub fn insert_metadata(&mut self, key: Yaml, value: Yaml) -> Result<(), ParseError> {
         let key = if let Yaml::String(val) = key {
