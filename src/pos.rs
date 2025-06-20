@@ -201,17 +201,6 @@ pub enum PositionError {
 }
 
 impl Pos {
-    pub fn from_position(position: &Position, mapper: &PosMapper) -> Result<Self, PositionError> {
-        let offset = mapper.position_to_offset(position)?;
-        let offset_range = Offset(offset)..Offset(offset);
-        let row_range = Row(position.line as usize)..Row(position.line as usize);
-        let col_range = Col(position.character as usize)..Col(position.character as usize);
-        Ok(Self {
-            offset_range,
-            row_range,
-            col_range,
-        })
-    }
     pub fn new(
         offset_range: Range<usize>,
         path: &PathBuf,

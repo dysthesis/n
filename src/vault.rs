@@ -8,12 +8,10 @@ use thiserror::Error;
 use crate::{
     MAX_ITER, TOLERANCE,
     document::Document,
-    link::Link,
     path::MarkdownPath,
     query::Query,
-    rank::{self, Rank, rank},
+    rank::{Rank, rank},
     search::Corpus,
-    vault,
 };
 
 /// A collection of notes
@@ -62,10 +60,6 @@ impl Vault {
     #[inline]
     pub fn get_document(&self, path: &MarkdownPath) -> Option<&Document> {
         self.documents.get(path)
-    }
-
-    pub fn resolve_link(&self, link: Link) -> Option<MarkdownPath> {
-        link.to_markdown_path(self.path())
     }
 
     pub fn new(

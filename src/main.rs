@@ -6,11 +6,10 @@ mod path;
 mod pos;
 mod query;
 mod rank;
+mod rope;
 mod search;
 mod template;
 mod vault;
-
-use std::collections::HashMap;
 
 use dashmap::DashMap;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};

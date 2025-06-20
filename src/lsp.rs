@@ -23,9 +23,9 @@ use tracing::{info, trace, warn};
 
 use crate::{
     document::Document,
-    link::Link,
     pos::{Col, Row},
     rank::Rank,
+    rope::RopeLspExt,
 };
 
 #[derive(Debug)]
@@ -37,42 +37,6 @@ pub struct Backend {
     // evaluate how relevant some other linked note is to the one currently open.
     ranks: DashMap<Url, Rank>,
     root_path: PathBuf,
-}
-
-// Helper functions
-// TODO: Encapsulate into some type
-#[inline]
-/// Convert an LSP Position (UTF-16 based) into a Rope char index.
-fn lsp_pos_to_char(rope: &Rope, pos: Position) -> usize {
-    // Get the index (in chars) of the start of the given line.
-    let line_start_char = rope.line_to_char(pos.line as usize);
-    // Iterate over the line’s chars, accumulating UTF-16 length.
-    let mut utf16_units = 0;
-    let line = rope.line(pos.line as usize);
-    for (i, ch) in line.chars().enumerate() {
-        if utf16_units == pos.character as usize {
-            return line_start_char + i;
-        }
-        utf16_units += ch.len_utf16();
-    }
-    // If the requested character is past EOL, clamp to line end.
-    line_start_char + line.len_chars()
-}
-#[inline]
-// Convert a Rope char index to an LSP `Position` (UTF-16 code units).
-fn char_idx_to_position(rope: &Rope, char_idx: usize) -> Position {
-    // Which line is this?
-    let line = rope.char_to_line(char_idx);
-    // What char index is the start of that line?
-    let line_start_char = rope.line_to_char(line);
-    // How many UTF-16 units up to the offset and line start?
-    let utf16_offset = rope.char_to_utf16_cu(char_idx);
-    let utf16_line = rope.char_to_utf16_cu(line_start_char);
-
-    Position {
-        line: line as u32,
-        character: (utf16_offset - utf16_line) as u32,
-    }
 }
 
 #[tower_lsp::async_trait]
@@ -125,7 +89,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
         let cursor_pos = params.text_document_position.position;
-        let cursor_char = lsp_pos_to_char(&doc.rope, cursor_pos);
+        let cursor_char = doc.rope.lsp_pos_to_char(cursor_pos);
 
         let mut start_char = 0;
         let mut query = None;
@@ -192,10 +156,9 @@ impl LanguageServer for Backend {
             end_char = cursor_char + 2;
         }
 
-        let edit_range = Range {
-            start: char_idx_to_position(&doc.rope, start_char),
-            end: char_idx_to_position(&doc.rope, end_char),
-        };
+        let start = doc.rope.char_to_lsp_pos(start_char);
+        let end = doc.rope.char_to_lsp_pos(end_char);
+        let edit_range = Range { start, end };
 
         let items: Vec<CompletionItem> = matches
             .into_iter()
