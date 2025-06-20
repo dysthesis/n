@@ -58,14 +58,14 @@ pub struct PosMapper {
 
 impl PosMapper {
     pub fn new(text: String, encoding: PositionEncodingKind) -> Self {
-        let line_starts = text
-            .as_bytes()
-            .iter()
-            .enumerate()
-            .filter(|&(_, &b)| b == b'\n')
-            // Get the character after the newline
-            .map(|(i, _)| i + 1)
-            .collect();
+        let mut line_starts = vec![0]; // guarantee line 0
+        line_starts.extend(
+            text.as_bytes()
+                .iter()
+                .enumerate()
+                .filter(|&(_, &b)| b == b'\n')
+                .map(|(i, _)| i + 1),
+        );
 
         Self {
             text,
@@ -239,5 +239,45 @@ impl Pos {
     }
     pub fn row_range(&self) -> Range<Row> {
         self.row_range.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use proptest::prelude::*;
+    use tower_lsp::lsp_types;
+
+    proptest! {
+        #[test]
+        fn round_trip_offset(
+            // 1.  Generate an arbitrary UTF-8 text string.
+            (text, encoding, offset) in
+                any::<String>()
+                .prop_flat_map(|text| {
+                    let len = text.len();
+                    // 2.  Once we know `len`, pick:
+                    (
+                        Just(text),
+                        prop_oneof![
+                            Just(PositionEncodingKind::UTF8),
+                            Just(PositionEncodingKind::UTF16),
+                            Just(PositionEncodingKind::UTF32),
+                        ],
+                        0..=len
+                    )
+                })
+        ) {
+            let mapper = PosMapper::new(text.clone(), encoding);
+
+            let (row, col) = mapper.offset_to_position(offset).unwrap();
+            let (row, col): (usize, usize) = (row.into(), col.into());
+            let back       = mapper.position_to_offset(
+                                 &lsp_types::Position::new(row as u32,
+                                                           col as u32))
+                                 .unwrap();
+            prop_assert_eq!(back, offset);
+        }
     }
 }
