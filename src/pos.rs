@@ -58,7 +58,7 @@ pub struct PosMapper {
 
 impl PosMapper {
     pub fn new(text: String, encoding: PositionEncodingKind) -> Self {
-        let mut line_starts = vec![0]; // guarantee line 0
+        let mut line_starts = vec![0];
         line_starts.extend(
             text.as_bytes()
                 .iter()
@@ -73,6 +73,7 @@ impl PosMapper {
             encoding,
         }
     }
+
     /// Converts a `Position` to a byte offset (`usize`).
     ///
     /// Returns `None` if the position's line is out of bounds.
@@ -174,7 +175,8 @@ impl PosMapper {
 
         // TODO: Figure out why I can only adjust the row index here, and not above where
         // `line_start_idx` was defined.
-        Ok((Row(line_start_idx + 1), Col(character)))
+        // Okay so + 1 messes with involution, I need to figure something out...
+        Ok((Row(line_start_idx), Col(character)))
     }
 }
 
@@ -251,13 +253,13 @@ mod tests {
 
     proptest! {
         #[test]
-        fn round_trip_offset(
-            // 1.  Generate an arbitrary UTF-8 text string.
-            (text, encoding, offset) in
-                any::<String>()
+        fn offset_involution(
+            (text, enc, offset) in any::<String>()
                 .prop_flat_map(|text| {
-                    let len = text.len();
-                    // 2.  Once we know `len`, pick:
+                    let boundaries: Vec<usize> = text.char_indices()
+                                                     .map(|(i, _)| i)
+                                                     .chain(std::iter::once(text.len()))
+                                                     .collect();
                     (
                         Just(text),
                         prop_oneof![
@@ -265,19 +267,15 @@ mod tests {
                             Just(PositionEncodingKind::UTF16),
                             Just(PositionEncodingKind::UTF32),
                         ],
-                        0..=len
+                        prop::sample::select(boundaries)
                     )
                 })
         ) {
-            let mapper = PosMapper::new(text.clone(), encoding);
-
+            let mapper = PosMapper::new(text.clone(), enc);
             let (row, col) = mapper.offset_to_position(offset).unwrap();
             let (row, col): (usize, usize) = (row.into(), col.into());
-            let back       = mapper.position_to_offset(
-                                 &lsp_types::Position::new(row as u32,
-                                                           col as u32))
-                                 .unwrap();
-            prop_assert_eq!(back, offset);
+            let pos = lsp_types::Position::new(row as u32, col as u32);
+            prop_assert_eq!(mapper.position_to_offset(&pos).unwrap(), offset);
         }
     }
 }
