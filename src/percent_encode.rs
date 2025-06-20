@@ -23,6 +23,7 @@ pub trait PathBufExt: Deref<Target = Path> {
 }
 /// https://url.spec.whatwg.org/#fragment-percent-encode-set
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+// URL-encode the path to handle spaces, etc. e.g., "My Note.md" -> "My%20Note.md"
 
 pub trait StringExt: AsRef<str> {
     #[inline]
@@ -140,31 +141,31 @@ mod tests {
             let _ = path.percent_decode();
         }
 
-        /// The PathBuf involution holds even for non-UTF8 paths due to the use of `to_string_lossy`.
-        // TODO: Figure this out at some point
-        // #[test]
-        // fn pathbuf_ext_involution_with_lossy_paths(bytes in any::<Vec<u8>>()) {
-        //     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
-        //     // On unix, a path is just a sequence of bytes. On Windows, it's a sequence of 16-bit
-        //     // values (WTF-8). We'll simulate the unix case, which is a good proxy for "lossy" data.
-        //     #[cfg(unix)]
-        //     let os_str = OsStr::from_bytes(&bytes);
-        //
-        //     // A simple way to handle Windows for this test, though less representative of true
-        //     // invalid Windows paths. For this library's purpose, it's sufficient.
-        //     #[cfg(windows)]
-        //     let os_str = OsStr::new(String::from_utf8_lossy(&bytes).as_ref());
-        //
-        //     let original_path = PathBuf::from(os_str);
-        //
-        //     // The rest of the test is the same as the original involution test.
-        //     let encoded_string = original_path.percent_encode();
-        //     let path_from_encoded = PathBuf::from(&encoded_string);
-        //     let decoded_string = path_from_encoded.percent_decode();
-        //
-        //     // The key is that we compare against the *lossy* representation
-        //     // of the original path.
-        //     prop_assert_eq!(original_path.to_string_lossy(), decoded_string.as_str());
-        // }
     }
+    // TODO: Figure this out at some point
+    // The PathBuf involution holds even for non-UTF8 paths due to the use of `to_string_lossy`.
+    // #[test]
+    // fn pathbuf_ext_involution_with_lossy_paths(bytes in any::<Vec<u8>>()) {
+    //     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+    //     // On unix, a path is just a sequence of bytes. On Windows, it's a sequence of 16-bit
+    //     // values (WTF-8). We'll simulate the unix case, which is a good proxy for "lossy" data.
+    //     #[cfg(unix)]
+    //     let os_str = OsStr::from_bytes(&bytes);
+    //
+    //     // A simple way to handle Windows for this test, though less representative of true
+    //     // invalid Windows paths. For this library's purpose, it's sufficient.
+    //     #[cfg(windows)]
+    //     let os_str = OsStr::new(String::from_utf8_lossy(&bytes).as_ref());
+    //
+    //     let original_path = PathBuf::from(os_str);
+    //
+    //     // The rest of the test is the same as the original involution test.
+    //     let encoded_string = original_path.percent_encode();
+    //     let path_from_encoded = PathBuf::from(&encoded_string);
+    //     let decoded_string = path_from_encoded.percent_decode();
+    //
+    //     // The key is that we compare against the *lossy* representation
+    //     // of the original path.
+    //     prop_assert_eq!(original_path.to_string_lossy(), decoded_string.as_str());
+    // }
 }
