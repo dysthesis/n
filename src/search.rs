@@ -127,3 +127,154 @@ impl Corpus {
             .sum()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use proptest::prelude::*;
+    use rand::rng;
+    use rand::seq::{IndexedRandom, SliceRandom};
+
+    /// ASCII lowercase word, length 1‒10
+    fn word() -> impl Strategy<Value = String> {
+        proptest::collection::vec(proptest::char::range('a', 'z'), 1..=10)
+            .prop_map(|chars| chars.into_iter().collect())
+    }
+
+    /// Document = 1‒`max_len` words
+    fn document(max_len: usize) -> impl Strategy<Value = String> {
+        proptest::collection::vec(word(), 1..=max_len).prop_map(|words| words.join(" "))
+    }
+
+    /// Non-empty corpus of up to 20 docs (varied lengths)
+    fn corpus() -> impl Strategy<Value = Vec<String>> {
+        proptest::collection::vec(document(25), 1..=20)
+    }
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100_000))]
+        #[test]
+        fn score_is_never_negative(
+            docs in corpus(),
+            query in document(10)
+        ) {
+            let c = Corpus::new(docs.clone());
+            for d in &docs {
+                prop_assert!(c.score(&query, d) >= 0.0);
+            }
+        }
+
+        #[test]
+        fn empty_query_gives_zero(
+            docs in corpus(),
+            doc_idx in 0usize..
+        ) {
+            let c = Corpus::new(docs.clone());
+            let d = &docs[doc_idx % docs.len()];
+            prop_assert_eq!(c.score("", d), 0.0);
+        }
+
+        #[test]
+        fn more_occurences_raise_score(
+            base in proptest::collection::vec(word(), 1..=5),
+            extra in word()
+        ) {
+            let mut short = base.clone(); short.push(extra.clone());
+            let mut long  = short.clone(); long.push(extra.clone());
+
+            let docs = vec![short.join(" "), long.join(" ")];
+            let corpus = Corpus::new(docs.clone());
+
+            let qs = extra.as_str();
+            let s1 = corpus.score(qs, &docs[0]);
+            let s2 = corpus.score(qs, &docs[1]);
+            prop_assert!(s2 > s1);
+        }
+
+        #[test]
+        fn longer_doc_penalised(
+            term in word(),
+            filler in proptest::collection::vec(word(), 5..=15)
+        ) {
+            let short = term.clone();
+            let long = format!("{} {}", short, filler.join(" "));
+            let corpus = Corpus::new(vec![short.clone(), long.clone()]);
+
+            let s_short = corpus.score(&term, &short);
+            let s_long  = corpus.score(&term, &long);
+            prop_assert!(s_short > s_long);
+        }
+
+        #[test]
+        fn query_permutation_yields_same_score(
+            docs in corpus(),
+            q_words in proptest::collection::vec(word(), 1..=5)
+        ) {
+            let corpus = Corpus::new(docs.clone());
+
+            let q1 = q_words.join(" ");
+            let mut shuffled = q_words.clone();
+            shuffled.shuffle(&mut rng());
+            let q2 = shuffled.join(" ");
+
+            for d in &docs {
+                let s1 = corpus.score(&q1, d);
+                let s2 = corpus.score(&q2, d);
+                assert_relative_eq!(s1, s2, epsilon = 1e-6_f32);
+            }
+        }
+
+        #[test]
+        fn missing_terms_give_zero(
+            docs in corpus(),
+            candidate in word()
+        ) {
+            prop_assume!(
+                !docs.iter().any(|d| d.split_whitespace().any(|t| t == candidate))
+            );
+
+            let c = Corpus::new(docs.clone());
+            for d in &docs {
+                prop_assert_eq!(c.score(&candidate, d), 0.0);
+            }
+        }
+        #[test]
+        fn rarer_term_has_higher_idf(docs in corpus()) {
+            // Build the BM25 statistics
+            let corpus = Corpus::new(docs.clone());
+
+            // Collect all terms that the corpus knows IDF for
+            let terms: Vec<String> = corpus.idf.keys().cloned().collect();
+            prop_assume!(terms.len() >= 2);                         // shrink-friendly check
+
+            // Randomly choose two *distinct* terms
+            let mut rng = rng();
+            let t1 = terms.choose(&mut rng).unwrap().clone();       // SliceRandom::choose
+            let t2 = terms.choose(&mut rng).unwrap().clone();
+            prop_assume!(t1 != t2);
+
+            // Compute document-frequency counts directly
+            let df: HashMap<_, _> = terms.iter().map(|term| {
+                let count = docs.iter()
+                    .filter(|d| d.split_whitespace().any(|tok| tok == term))
+                    .count();
+                (term.clone(), count)
+            }).collect();
+
+            let (df1, df2) = (df[&t1], df[&t2]);
+            prop_assume!(df1 != df2);                               // ensure frequencies differ
+
+            let (idf1, idf2) = (corpus.idf[&t1], corpus.idf[&t2]);
+
+            if df1 < df2 {
+                prop_assert!(idf1 > idf2,
+                    "rarer term `{}` (df={}) should have greater IDF than `{}` (df={})",
+                    t1, df1, t2, df2);
+            } else {
+                prop_assert!(idf2 > idf1,
+                    "rarer term `{}` (df={}) should have greater IDF than `{}` (df={})",
+                    t2, df2, t1, df1);
+            }
+        }
+    }
+}

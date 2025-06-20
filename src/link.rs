@@ -134,6 +134,7 @@ mod tests {
             let link = Link::new(text, filename, pos);
             prop_assert!(link.points_to(&target));
         }
+        #[test]
         fn test_points_to_complex_relative_path(
             target: MarkdownPath,
             link: Link
