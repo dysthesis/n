@@ -224,18 +224,6 @@ impl LanguageServer for Backend {
             )
             .await;
 
-        // NOTE: This implementation makes the assumption that the file being opened is inside the
-        // current vault. It crashes out otherwise.
-        // TODO: See how the likes of zk and markdown-oxide handles out-of-vault documents.
-        // let path = if let Ok(path) = MarkdownPath::new(self.root_path.clone(), path.clone()) {
-        //     path
-        // } else {
-        //     self.client
-        //         .log_message(MessageType::ERROR, format!("Cannot find file at {path:?}"))
-        //         .await;
-        //     return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
-        // };
-
         self.client
             .log_message(MessageType::INFO, "The path is a valid markdown path")
             .await;
@@ -243,7 +231,8 @@ impl LanguageServer for Backend {
         let document = self
             .documents
             .get(&url)
-            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+            // Parameters are invalid; we cannot find the file being referenced.
+            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::InvalidParams))?;
 
         self.client
             .log_message(
@@ -274,6 +263,8 @@ impl LanguageServer for Backend {
                 .await;
             return Err(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)));
         };
+
+        // Get the range, and cast it back into a usize
         let row_range: std::ops::Range<Row> = link.pos().row_range();
         let row_range: std::ops::Range<usize> = row_range.start.into()..row_range.end.into();
         let col_range: std::ops::Range<Col> = link.pos().col_range();
@@ -318,7 +309,7 @@ impl LanguageServer for Backend {
         let document = self
             .documents
             .get(&url)
-            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::ServerError(0)))?;
+            .ok_or(jsonrpc::Error::new(jsonrpc::ErrorCode::InvalidParams))?;
 
         self.client
             .log_message(
