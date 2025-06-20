@@ -181,9 +181,10 @@ impl LanguageServer for Backend {
                     label: name.clone(),
                     kind: Some(CompletionItemKind::FILE),
                     // We display the full file as details
-                    detail: Some(
-                        std::fs::read_to_string(path).unwrap_or("Cannot open file".to_string()),
-                    ),
+                    detail: match Url::from_file_path(path) {
+                        Ok(url) => self.documents.get(&url).map(|doc| doc.rope.to_string()),
+                        Err(_) => None,
+                    },
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: edit_range,
                         new_text,
