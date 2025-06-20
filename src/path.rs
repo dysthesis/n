@@ -1,5 +1,4 @@
 use owo_colors::OwoColorize;
-use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use proptest::prelude::*;
 use serde::Serialize;
 use std::{
@@ -11,6 +10,8 @@ use std::{
 };
 use thiserror::Error;
 use url::Url;
+
+use crate::percent_encode::StringExt;
 
 #[derive(Debug, Error)]
 pub enum PathError {
@@ -36,14 +37,9 @@ impl MarkdownPath {
     pub fn new(base_path: PathBuf, path: PathBuf) -> Result<Self, PathError> {
         if path.extension().and_then(OsStr::to_str) == Some("md") {
             // TODO: Figure out a better way to encapsulate this decoding logic
-            let base_path: PathBuf = percent_decode_str(base_path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
-            let leaf: PathBuf = percent_decode_str(path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
+            let base_path: PathBuf = base_path.to_string_lossy().percent_decode().as_ref().into();
+
+            let leaf: PathBuf = path.to_string_lossy().percent_decode().as_ref().into();
 
             let joined_path = base_path.join(&leaf);
             let canonical_path =
@@ -67,14 +63,8 @@ impl MarkdownPath {
     fn new_unchecked(base_path: PathBuf, path: PathBuf) -> Result<Self, PathError> {
         if path.extension().and_then(OsStr::to_str) == Some("md") {
             // TODO: Figure out a better way to encapsulate this decoding logic
-            let base_path: PathBuf = percent_decode_str(base_path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
-            let path: PathBuf = percent_decode_str(path.to_string_lossy().as_ref())
-                .decode_utf8_lossy()
-                .as_ref()
-                .into();
+            let base_path: PathBuf = base_path.to_string_lossy().percent_decode().as_ref().into();
+            let path: PathBuf = path.to_string_lossy().percent_decode().as_ref().into();
 
             let canonical_path = base_path.join(&path);
             Ok(MarkdownPath(canonical_path))
@@ -89,9 +79,7 @@ fn maybe_encode(path: &Path, do_encode: bool) -> PathBuf {
     if !do_encode {
         return path.to_path_buf();
     }
-    /// https://url.spec.whatwg.org/#fragment-percent-encode-set
-    const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
-    let encoded = utf8_percent_encode(&path.to_string_lossy(), FRAGMENT).to_string();
+    let encoded = path.to_string_lossy().percent_encode().to_string();
     PathBuf::from(encoded)
 }
 

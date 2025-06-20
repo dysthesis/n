@@ -3,7 +3,6 @@
 use std::{fs, path::PathBuf};
 
 use dashmap::DashMap;
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use ropey::Rope;
 use tower_lsp::{
     Client, LanguageServer, LspService, Server, jsonrpc,
@@ -23,6 +22,7 @@ use tracing::{info, trace, warn};
 
 use crate::{
     document::Document,
+    percent_encode::PathBufExt,
     pos::{Col, Row},
     rank::Rank,
     rope::RopeLspExt,
@@ -166,13 +166,7 @@ impl LanguageServer for Backend {
                 let rel_path =
                     pathdiff::diff_paths(path.clone(), self.root_path.clone()).unwrap_or_default();
 
-                /// https://url.spec.whatwg.org/#fragment-percent-encode-set
-                const FRAGMENT: &AsciiSet =
-                    &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
-                // URL-encode the path to handle spaces, etc. e.g., "My Note.md" -> "My%20Note.md"
-                let encoded_path =
-                    utf8_percent_encode(rel_path.to_string_lossy().to_string().as_str(), FRAGMENT)
-                        .to_string();
+                let encoded_path = rel_path.percent_encode();
 
                 // Format snippet
                 let new_text = format!("[${{1:{}}}]({})", name.clone(), encoded_path);
@@ -379,13 +373,12 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
-        // TODO: Better error handling
-        let doc = Document::new(self.root_path.clone(), uri.path().into()).unwrap();
-
-        self.client
-            .log_message(MessageType::INFO, format!("File {uri} opened!"))
-            .await;
-        self.documents.insert(uri, doc);
+        if let Ok(doc) = Document::new(self.root_path.clone(), uri.path().into()) {
+            self.client
+                .log_message(MessageType::INFO, format!("File {uri} opened!"))
+                .await;
+            self.documents.insert(uri, doc);
+        }
     }
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         pub fn position_to_offset(rope: &Rope, position: Position) -> Option<usize> {
