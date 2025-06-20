@@ -22,6 +22,7 @@ pub enum PathError {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 /// A path that is guaranteed to be a Markdown file
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct MarkdownPath(PathBuf);
 impl Serialize for MarkdownPath {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

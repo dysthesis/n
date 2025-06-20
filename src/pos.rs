@@ -9,6 +9,7 @@ use tower_lsp::lsp_types::{Position, PositionEncodingKind};
 /// The offset of the element from the start of the file in terms of bytes
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Offset(usize);
 impl From<Offset> for usize {
     fn from(value: Offset) -> Self {
@@ -19,6 +20,7 @@ impl From<Offset> for usize {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Row(usize);
 impl From<Row> for usize {
     fn from(value: Row) -> Self {
@@ -40,6 +42,7 @@ impl From<Position> for Col {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Col(usize);
 impl From<Col> for usize {
     fn from(value: Col) -> Self {
@@ -185,6 +188,7 @@ impl PosMapper {
 
 /// The position of a text element
 #[derive(Debug, Serialize, Clone, PartialEq, Hash, Eq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Pos {
     offset_range: Range<Offset>,
     row_range: Range<Row>,

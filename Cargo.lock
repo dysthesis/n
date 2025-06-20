@@ -619,6 +619,7 @@ dependencies = [
  "pathdiff",
  "percent-encoding",
  "proptest",
+ "proptest-derive",
  "pulldown-cmark",
  "rayon",
  "regex",
@@ -839,6 +840,17 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "proptest-derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "095a99f75c69734802359b682be8daaf8980296731f6470434ea2c652af1dd30"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
