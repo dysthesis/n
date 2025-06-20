@@ -21,6 +21,7 @@ pkgs.mkShell {
       cargo-expand
       cargo-unused-features
       cargo-nextest
+      cargo-tarpaulin
       bolt_20
     ]
     ++ (with self.packages.${pkgs.system}; [

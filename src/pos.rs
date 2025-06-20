@@ -156,6 +156,9 @@ impl PosMapper {
 
         // The text from the start of the line up to the target offset. We will use it to calculate
         // the column, as it may depend on the UTF encoding.
+        if !self.text.is_char_boundary(offset) {
+            return Err(PositionError::OffsetNotCharBoundary { offset });
+        }
         let text_before_offset_in_line = &self.text[line_start..offset];
 
         let character = if self.encoding == PositionEncodingKind::UTF16 {
@@ -200,6 +203,8 @@ pub enum PositionError {
     LineNotFound { line: usize },
     #[error("failed to convert from the u32 value {value} to usize because {reason}")]
     ConversionFromU32ToUSizeFailed { value: u32, reason: String },
+    #[error("offset {offset} is not a char boundary")]
+    OffsetNotCharBoundary { offset: usize },
 }
 
 impl Pos {
@@ -246,12 +251,12 @@ impl Pos {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use proptest::prelude::*;
     use tower_lsp::lsp_types;
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100_000))]
         #[test]
         fn offset_involution(
             (text, enc, offset) in any::<String>()
@@ -276,6 +281,41 @@ mod tests {
             let (row, col): (usize, usize) = (row.into(), col.into());
             let pos = lsp_types::Position::new(row as u32, col as u32);
             prop_assert_eq!(mapper.position_to_offset(&pos).unwrap(), offset);
+        }
+        #[test]
+        fn pos_new_consistent_with_mapper(
+            (text, range) in any::<String>()
+                .prop_flat_map(|text| {
+                    // build the UTF-8-safe boundary list
+                    let boundaries: Vec<usize> = text.char_indices()
+                                                     .map(|(i, _)| i)
+                                                     .chain(std::iter::once(text.len()))
+                                                     .collect();
+                    let range_strat = prop::sample::select(boundaries.clone())
+                        .prop_flat_map(move |start| {
+                            let later: Vec<usize> = boundaries.iter()
+                                                              .cloned()
+                                                              .filter(move |&b| b >= start)
+                                                              .collect();
+                            prop::sample::select(later)
+                                .prop_map(move |end| start..end)
+                        });
+                    (Just(text), range_strat)
+                }),
+            encoding in Just(PositionEncodingKind::UTF8)
+        ) {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), &text).unwrap();
+
+            let pos = Pos::new(range.clone(), &file.path().to_path_buf(), encoding.clone()).unwrap();
+            let mapper = PosMapper::new(text, encoding);
+
+            let (row_s, col_s) = mapper.offset_to_position(range.start).unwrap();
+            let (row_e, col_e) = mapper.offset_to_position(range.end).unwrap();
+
+            prop_assert_eq!(pos.row_range(), Row(row_s.into())..Row(row_e.into()));
+            prop_assert_eq!(pos.col_range(), Col(col_s.into())..Col(col_e.into()));
+            prop_assert_eq!(pos.offset_range(), Offset(range.start)..Offset(range.end));
         }
     }
 }

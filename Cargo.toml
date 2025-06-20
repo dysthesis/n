@@ -7,7 +7,6 @@ nom = "8.0.0"
 once_cell = "1.21.3"
 owo-colors = "4.2.1"
 percent-encoding = "2.3.1"
-proptest = "1.7.0"
 pulldown-cmark = {version = "0.13.0", features = ["simd"]}
 rayon = "1.10.0"
 regex = "1.11.1"
@@ -25,11 +24,15 @@ url = "2.5.4"
 yaml-rust2 = "0.10.3"
 pathdiff = "0.2.3"
 
+[dev-dependencies]
+proptest = "1.7.0"
+tempfile = "3.20.0"
 
 [package]
 name = "n"
 version = "0.1.0"
 edition = "2024"
+resolver = "2"
 
 [profile.release]
 strip = "debuginfo"
