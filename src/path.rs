@@ -1,5 +1,4 @@
 use owo_colors::OwoColorize;
-use proptest::prelude::*;
 use serde::Serialize;
 use std::{
     ffi::OsStr,
@@ -104,54 +103,59 @@ impl TryFrom<MarkdownPath> for Url {
     }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(100_000))]
-    #[test]
-    /// Given the same base path and leaf, two MarkdownPaths must always be equal
-    fn equivalence(
-        // Random directory (can contain separators).
-        base in any::<PathBuf>(),
-        // Random leaf component w/out separators, then suffixed.
-        stem in proptest::string::string_regex("[A-Za-z0-9_]{1,16}").unwrap(),
-        // Independent toggles.
-        encode_base in any::<bool>(),
-        encode_leaf in any::<bool>(),
-    ) {
-        // Ensure the file is recognisably Markdown.
-        let file = PathBuf::from(format!("{stem}.md"));
-        // Compose possibly-encoded arguments.
-        let b1 = maybe_encode(&base, encode_base);
-        let p1 = maybe_encode(&file, encode_leaf);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100_000))]
+        #[test]
+        /// Given the same base path and leaf, two MarkdownPaths must always be equal
+        fn equivalence(
+            // Random directory (can contain separators).
+            base in any::<PathBuf>(),
+            // Random leaf component w/out separators, then suffixed.
+            stem in proptest::string::string_regex("[A-Za-z0-9_]{1,16}").unwrap(),
+            // Independent toggles.
+            encode_base in any::<bool>(),
+            encode_leaf in any::<bool>(),
+        ) {
+            // Ensure the file is recognisably Markdown.
+            let file = PathBuf::from(format!("{stem}.md"));
+            // Compose possibly-encoded arguments.
+            let b1 = maybe_encode(&base, encode_base);
+            let p1 = maybe_encode(&file, encode_leaf);
 
-        // The property under test.
-        let lhs = MarkdownPath::new_unchecked(b1, p1).unwrap();
-        let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
+            // The property under test.
+            let lhs = MarkdownPath::new_unchecked(b1, p1).unwrap();
+            let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
 
-        prop_assert_eq!(lhs, rhs);
-    }
-    #[test]
+            prop_assert_eq!(lhs, rhs);
+        }
+        #[test]
 
-    /// Given the same base path and leaf, two MarkdownPaths must always have the same hash
-    fn hash_equivalence(
-        // Random directory (can contain separators).
-        base in any::<PathBuf>(),
-        // Random leaf component w/out separators, then suffixed.
-        stem in proptest::string::string_regex("[A-Za-z0-9_]{1,16}").unwrap(),
-        // Independent toggles.
-        encode_base in any::<bool>(),
-        encode_leaf in any::<bool>(),
-    ) {
-        use std::hash::DefaultHasher;
-        // Ensure the file is recognisably Markdown.
-        let file = PathBuf::from(format!("{stem}.md"));
-        // Compose possibly-encoded arguments.
-        let b1 = maybe_encode(&base, encode_base);
-        let p1 = maybe_encode(&file, encode_leaf);
+        /// Given the same base path and leaf, two MarkdownPaths must always have the same hash
+        fn hash_equivalence(
+            // Random directory (can contain separators).
+            base in any::<PathBuf>(),
+            // Random leaf component w/out separators, then suffixed.
+            stem in proptest::string::string_regex("[A-Za-z0-9_]{1,16}").unwrap(),
+            // Independent toggles.
+            encode_base in any::<bool>(),
+            encode_leaf in any::<bool>(),
+        ) {
+            use std::hash::DefaultHasher;
+            // Ensure the file is recognisably Markdown.
+            let file = PathBuf::from(format!("{stem}.md"));
+            // Compose possibly-encoded arguments.
+            let b1 = maybe_encode(&base, encode_base);
+            let p1 = maybe_encode(&file, encode_leaf);
 
-        // The property under test.
-        let lhs = MarkdownPath::new_unchecked(b1, p1).unwrap();
-        let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
+            // The property under test.
+            let lhs = MarkdownPath::new_unchecked(b1, p1).unwrap();
+            let rhs = MarkdownPath::new_unchecked(base.clone(), file).unwrap();
 
-        prop_assert_eq!(lhs.hash(&mut DefaultHasher::new()), rhs.hash(&mut DefaultHasher::new()));
+            prop_assert_eq!(lhs.hash(&mut DefaultHasher::new()), rhs.hash(&mut DefaultHasher::new()));
+        }
     }
 }

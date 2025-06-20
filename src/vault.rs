@@ -169,7 +169,7 @@ impl Vault {
         self.documents()
             .into_iter()
             .zip(rank(self.documents(), self.path(), MAX_ITER, TOLERANCE))
-            .map(|(k, v)| (k.to_owned(), v.into()))
+            .map(|(k, v)| (k.to_owned(), v))
             .collect()
     }
 }
