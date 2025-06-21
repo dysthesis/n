@@ -30,7 +30,7 @@
 //! - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
 use std::collections::{HashMap, HashSet};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use rust_stemmers::{Algorithm, Stemmer};
 use serde::Serialize;
 
@@ -44,6 +44,7 @@ pub struct Corpus {
     docs: Vec<String>,
     avgdl: f32,
     idf: HashMap<String, f32>,
+    df: HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
@@ -74,38 +75,38 @@ impl Corpus {
             / docs.len() as f32;
 
         // Calculate the document frequency
-        let df = docs
-            .par_iter()
-            // Normalise the text to make it case-insensitive, and flatten it into a set of all
-            // tokens
-            .flat_map(|doc| {
-                doc.split_whitespace()
-                    .map(str::to_ascii_lowercase)
-                    .map(|x| stemmer.stem(x.as_str()).to_string())
-                    .collect::<HashSet<_>>()
-            })
-            // Calculate the occurrence of each token
-            .fold(HashMap::new, |mut acc: HashMap<String, f32>, curr| {
-                *acc.entry(curr).or_default() += 1f32;
-                acc
-            })
-            .reduce(HashMap::new, |mut a, b| {
-                b.iter().for_each(|(k, v)| {
-                    *a.entry(k.to_string()).or_default() += v;
-                });
-                a
-            });
+        let mut df: HashMap<String, u32> = HashMap::new();
+        for doc in &docs {
+            let unique_terms: HashSet<String> = doc
+                .split_whitespace()
+                .par_bridge()
+                .map(|tok| stemmer.stem(tok).to_string())
+                .collect();
+
+            for term in unique_terms {
+                *df.entry(term).or_default() += 1;
+            }
+        }
 
         // Calculate the inverse document frequency of each token from the document frequency
         let idf = df
-            .into_iter()
+            .par_iter()
             .map(|(term, num_occurrence)| {
                 let num_docs = docs.len() as f32;
-                let idf = ((num_docs - num_occurrence + 0.5) / (num_occurrence + 0.5) + 1.0).ln();
-                (term, idf)
+                let idf: f32 = {
+                    let num_occurrence: f32 = *num_occurrence as f32;
+                    let res: f32 = (num_docs - num_occurrence + 0.5) / (num_occurrence + 0.5) + 1.0;
+                    res.ln()
+                };
+                (term.clone(), idf)
             })
             .collect();
-        Self { docs, avgdl, idf }
+        Self {
+            docs,
+            avgdl,
+            idf,
+            df,
+        }
     }
 
     /// Calculate the BM25 score of a `document` given the `query`
@@ -172,7 +173,8 @@ mod tests {
         ) {
             let c = Corpus::new(docs.clone());
             for d in &docs {
-                prop_assert!(c.score(&query, d) >= 0.0);
+                let score: f32 = c.score(&query, d).into();
+                prop_assert!(score >= 0.0);
             }
         }
 
@@ -183,7 +185,8 @@ mod tests {
         ) {
             let c = Corpus::new(docs.clone());
             let d = &docs[doc_idx % docs.len()];
-            prop_assert_eq!(c.score("", d), 0.0);
+            let score: f32 = c.score("", d).into();
+            prop_assert_eq!(score, 0.0);
         }
 
         #[test]
@@ -230,76 +233,79 @@ mod tests {
             let q2 = shuffled.join(" ");
 
             for d in &docs {
-                let s1 = corpus.score(&q1, d);
-                let s2 = corpus.score(&q2, d);
+                let s1: f32 = corpus.score(&q1, d).into();
+                let s2: f32 = corpus.score(&q2, d).into();
                 assert_relative_eq!(s1, s2, epsilon = 1e-6_f32);
             }
         }
 
         #[test]
         fn missing_terms_give_zero(
-            docs in corpus(),
-            candidate in word()
+            (docs, missing_term) in corpus().prop_flat_map(|docs| {
+                let stemmer = Stemmer::create(Algorithm::English);
+                let existing_stems: HashSet<String> = docs
+                    .iter()
+                    .flat_map(|d| d.split_whitespace())
+                    .map(|t| stemmer.stem(t).to_string())
+                    .collect();
+
+                (
+                    Just(docs),
+                    word().prop_filter(
+                        "candidate term must not be in the corpus",
+                        move |candidate| !existing_stems.contains(&stemmer.stem(candidate).to_string())
+                    )
+                )
+            })
         ) {
-            let stemmer = Stemmer::create(Algorithm::English);
-            let stemmed_candidate = stemmer.stem(&candidate).to_string();
-
-            prop_assume!(
-                !docs.iter().any(|d| {
-                    d.split_whitespace()
-                     .map(|t| stemmer.stem(t).to_string())
-                     .any(|stemmed_tok| stemmed_tok == stemmed_candidate)
-                })
-            );
-
             let c = Corpus::new(docs.clone());
             for d in &docs {
-                prop_assert_eq!(c.score(&candidate, d), 0.0);
+                let score: f32 = c.score(&missing_term, d).into();
+                prop_assert_eq!(score, 0.0);
             }
         }
+
         #[test]
-        fn rarer_term_has_higher_idf(docs in corpus()) {
-            // Build the BM25 statistics
-            let corpus = Corpus::new(docs.clone());
-
-            // Collect all terms that the corpus knows IDF for
+        fn rarer_term_has_higher_idf(
+            docs in corpus()
+        ) {
+            let corpus = Corpus::new(docs);
             let terms: Vec<String> = corpus.idf.keys().cloned().collect();
-            prop_assume!(terms.len() >= 2);                         // shrink-friendly check
 
-            // Randomly choose two *distinct* terms
-            let mut rng = rng();
-            let t1 = terms.choose(&mut rng).unwrap().clone();       // SliceRandom::choose
-            let t2 = terms.choose(&mut rng).unwrap().clone();
-            prop_assume!(t1 != t2);
+            prop_assume!(terms.len() >= 2, "Need at least two terms to compare");
 
-            let stemmer = Stemmer::create(Algorithm::English);
-            // Compute document-frequency counts directly
-            let df: HashMap<_, _> = terms.iter().map(|term| {
-                // The term from corpus.idf.keys() is already stemmed, no need to stem it again.
-                let count = docs.iter()
-                .filter(|d| {
-                    d.split_whitespace()
-                     .map(str::to_ascii_lowercase)
-                     .map(|tok| stemmer.stem(&tok).to_string()) // Stem tokens before checking
-                     .any(|stemmed_tok| &stemmed_tok == term)
-                })
-                .count();
-                (term.clone(), count)
-            }).collect();
+            for i in 0..terms.len() {
+                for j in (i + 1)..terms.len() {
+                    let t1 = &terms[i];
+                    let t2 = &terms[j];
 
-            let (df1, df2) = (df[&t1], df[&t2]);
-            prop_assume!(df1 != df2);                               // ensure frequencies differ
+                    let df1 = corpus.df[t1];
+                    let df2 = corpus.df[t2];
 
-            let (idf1, idf2) = (corpus.idf[&t1], corpus.idf[&t2]);
+                    let idf1 = corpus.idf[t1];
+                    let idf2 = corpus.idf[t2];
 
-            if df1 < df2 {
-                prop_assert!(idf1 > idf2,
-                    "rarer term `{}` (df={}) should have greater IDF than `{}` (df={})",
-                    t1, df1, t2, df2);
-            } else {
-                prop_assert!(idf2 > idf1,
-                    "rarer term `{}` (df={}) should have greater IDF than `{}` (df={})",
-                    t2, df2, t1, df1);
+                    if df1 < df2 {
+                        prop_assert!(
+                            idf1 > idf2,
+                            "Term '{}' (df={}) is rarer than '{}' (df={}), so its IDF ({}) should be > ({})",
+                            t1, df1, t2, df2, idf1, idf2
+                        );
+                    } else if df2 < df1 {
+                        prop_assert!(
+                            idf2 > idf1,
+                            "Term '{}' (df={}) is rarer than '{}' (df={}), so its IDF ({}) should be > ({})",
+                            t2, df2, t1, df1, idf2, idf1
+                        );
+                    } else {
+                        let tolerance = 1e-9;
+                        prop_assert!(
+                            (idf1 - idf2).abs() < tolerance,
+                            "Terms '{}' and '{}' have the same DF ({}), so their IDFs ({}, {}) should be equal",
+                            t1, t2, df1, idf1, idf2
+                        );
+                    }
+                }
             }
         }
     }
