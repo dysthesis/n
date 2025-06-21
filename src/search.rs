@@ -30,12 +30,58 @@
 //! - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
 use std::{
     collections::{HashMap, HashSet},
-    ops::{Add, Mul, Sub},
+    ops::{Add, AddAssign, Mul, Sub},
 };
 
 use nlprule::{Tokenizer, tokenizer_filename};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Default)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Tf(usize);
+impl From<Tf> for usize {
+    fn from(Tf(value): Tf) -> Self {
+        value
+    }
+}
+impl Default for &Tf {
+    fn default() -> Self {
+        &Tf(0usize)
+    }
+}
+impl Add for Tf {
+    type Output = Tf;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let (Self(rhs), Self(lhs)) = (rhs, self);
+        Self(rhs + lhs)
+    }
+}
+impl AddAssign for Tf {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone() + rhs;
+    }
+}
+impl Tf {
+    pub fn from(corpus: &Corpus, document: &str) -> HashMap<String, Self> {
+        corpus
+            .tokenize(document)
+            .par_iter()
+            .fold(
+                HashMap::new,
+                |mut frequencies: HashMap<String, Tf>, term| {
+                    *frequencies.entry(term.clone()).or_default() += Self(1);
+                    frequencies
+                },
+            )
+            .reduce(HashMap::new, |mut a, b| {
+                a.extend(b);
+                a
+            })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Default)]
 #[serde(transparent)]
@@ -58,17 +104,12 @@ impl Df {
                 for term in unique_terms {
                     *df.entry(term).or_default() += 1;
                 }
-                df.iter()
-                    .map(|(k, v)| (k.clone(), Self(v.clone())))
-                    .collect()
+                df.iter().map(|(k, v)| (k.clone(), Self(*v))).collect()
             })
-            .reduce(
-                || HashMap::new(),
-                |mut a, b| {
-                    a.extend(b);
-                    a
-                },
-            )
+            .reduce(HashMap::new, |mut a, b| {
+                a.extend(b);
+                a
+            })
     }
 }
 
@@ -185,33 +226,39 @@ impl Corpus {
     pub const B: f32 = 0.75;
 
     #[inline]
-    fn insert_doc(&mut self, val: String) {
-        self.docs.push(val)
-    }
-
-    fn get_df(&self) -> &HashMap<String, Df> {
+    pub fn get_df(&self) -> &HashMap<String, Df> {
         &self.df
     }
-    fn get_idf(&self) -> &HashMap<String, Idf> {
+    #[allow(unused)]
+    #[inline]
+    pub fn get_idf(&self) -> &HashMap<String, Idf> {
         &self.idf
     }
-    fn get_docs(&self) -> &Vec<String> {
+    #[inline]
+    pub fn get_docs(&self) -> &Vec<String> {
         &self.docs
     }
 
     #[inline]
     fn update_idf(&mut self) {
-        let idf = Idf::from(&self);
+        let idf = Idf::from(self);
         self.idf = idf;
     }
 
     #[inline]
     fn update_df(&mut self) {
-        let df = Df::from(&self);
+        let df = Df::from(self);
         self.df = df;
     }
 
-    fn tokenize(&self, str: &str) -> HashSet<String> {
+    pub fn create_tokenizer() -> Tokenizer {
+        let mut tokenizer_bytes: &'static [u8] =
+            include_bytes!(concat!(env!("OUT_DIR"), "/", tokenizer_filename!("en")));
+
+        Tokenizer::from_reader(&mut tokenizer_bytes).expect("tokenizer binary is valid")
+    }
+
+    pub fn tokenize(&self, str: &str) -> HashSet<String> {
         self.tokenizer
             .pipe(str)
             .flat_map(|s| {
@@ -229,11 +276,7 @@ impl Corpus {
         // Find the average length of a document in the corpus
         let avgdl: Avgdl = (&docs).into();
 
-        let mut tokenizer_bytes: &'static [u8] =
-            include_bytes!(concat!(env!("OUT_DIR"), "/", tokenizer_filename!("en")));
-
-        let tokenizer =
-            Tokenizer::from_reader(&mut tokenizer_bytes).expect("tokenizer binary is valid");
+        let tokenizer = Corpus::create_tokenizer();
 
         let mut corpus = Self {
             docs,
@@ -259,27 +302,19 @@ impl Corpus {
         let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / avgdl);
 
         // Find out how many times each term shows up in the given document
-        let tf: HashMap<String, usize> = self
-            .tokenize(document)
-            .par_iter()
-            .fold(
-                HashMap::new,
-                |mut frequencies: HashMap<String, usize>, term| {
-                    *frequencies.entry(term.clone()).or_default() += 1;
-                    frequencies
-                },
-            )
-            .reduce(HashMap::new, |mut a, b| {
-                a.extend(b);
-                a
-            });
+        let tf: HashMap<String, Tf> = Tf::from(self, document);
 
         // Calculate the BM25 score of each term in the query
         let res = self
             .tokenize(query)
             .iter()
             .map(|term| {
-                let frequency = *tf.get(term.as_str()).unwrap_or(&0) as f32;
+                let frequency = {
+                    let frequency: usize = <Tf as std::convert::Into<usize>>::into(
+                        tf.get(term.as_str()).unwrap_or_default().clone(),
+                    );
+                    frequency as f32
+                };
                 let Idf(idf) = *self.idf.get(term.as_str()).unwrap_or_default();
                 idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
             })
@@ -294,7 +329,7 @@ mod tests {
     use approx::assert_relative_eq;
     use proptest::prelude::*;
     use rand::rng;
-    use rand::seq::{IndexedRandom, SliceRandom};
+    use rand::seq::SliceRandom;
 
     /// ASCII lowercase word, length 1‒10
     fn word() -> impl Strategy<Value = String> {
@@ -389,25 +424,46 @@ mod tests {
         #[test]
         fn missing_terms_give_zero(
             (docs, missing_term) in corpus().prop_flat_map(|docs| {
-                let existing_stems: HashSet<String> = docs
+                // 1. Get an instance of the exact same tokenizer the Corpus will use.
+                let tokenizer = Corpus::create_tokenizer();
+
+                // 2. Collect all tokens from the generated docs using this tokenizer.
+                let existing_tokens: HashSet<String> = docs
                     .iter()
-                    .flat_map(|d| d.split_whitespace())
-                    .map(|t| stemmer.stem(t).to_string())
+                    .flat_map(|d| {
+                        // Use the real tokenizer's logic!
+                        tokenizer.pipe(d.as_str())
+                            .flat_map(|encoding| {
+                                encoding.tokens()
+                                    .par_iter()
+                                    .map(|w| w.word().as_str().to_string())
+                                    .collect::<Vec<String>>()
+                            })
+                    })
                     .collect();
 
+                // 3. Generate a term that is guaranteed not to be in the set of existing tokens.
                 (
                     Just(docs),
-                    word().prop_filter(
+                    // A strategy for a single word
+                    "[a-z]{3,10}".prop_filter(
                         "candidate term must not be in the corpus",
-                        move |candidate| !existing_stems.contains(&stemmer.stem(candidate).to_string())
-                    )
+                        move |candidate| !existing_tokens.contains(candidate),
+                    ),
                 )
             })
         ) {
             let c = Corpus::new(docs.clone());
             for d in &docs {
                 let score: f32 = c.score(&missing_term, d).into();
-                prop_assert_eq!(score, 0.0);
+                // Add a message to the assert for better debug output on failure
+                prop_assert_eq!(
+                    score,
+                    0.0,
+                    "Score for missing term '{}' in doc '{}' should be 0.0",
+                    missing_term,
+                    d
+                );
             }
         }
 
