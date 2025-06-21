@@ -90,7 +90,7 @@ impl Corpus {
             .into_iter()
             .map(|(term, num_occurrence)| {
                 let num_docs = docs.len() as f32;
-                let idf = ((num_docs - num_occurrence + 0.5 / (num_occurrence + 0.5)) + 1.0).ln();
+                let idf = ((num_docs - num_occurrence + 0.5) / (num_occurrence + 0.5) + 1.0).ln();
                 (term, idf)
             })
             .collect();
@@ -229,8 +229,15 @@ mod tests {
             docs in corpus(),
             candidate in word()
         ) {
+            let stemmer = Stemmer::create(Algorithm::English);
+            let stemmed_candidate = stemmer.stem(&candidate).to_string();
+
             prop_assume!(
-                !docs.iter().any(|d| d.split_whitespace().any(|t| t == candidate))
+                !docs.iter().any(|d| {
+                    d.split_whitespace()
+                     .map(|t| stemmer.stem(t).to_string())
+                     .any(|stemmed_tok| stemmed_tok == stemmed_candidate)
+                })
             );
 
             let c = Corpus::new(docs.clone());
@@ -253,11 +260,18 @@ mod tests {
             let t2 = terms.choose(&mut rng).unwrap().clone();
             prop_assume!(t1 != t2);
 
+            let stemmer = Stemmer::create(Algorithm::English);
             // Compute document-frequency counts directly
             let df: HashMap<_, _> = terms.iter().map(|term| {
+                // The term from corpus.idf.keys() is already stemmed, no need to stem it again.
                 let count = docs.iter()
-                    .filter(|d| d.split_whitespace().any(|tok| tok == term))
-                    .count();
+                .filter(|d| {
+                    d.split_whitespace()
+                     .map(str::to_ascii_lowercase)
+                     .map(|tok| stemmer.stem(&tok).to_string()) // Stem tokens before checking
+                     .any(|stemmed_tok| &stemmed_tok == term)
+                })
+                .count();
                 (term.clone(), count)
             }).collect();
 
