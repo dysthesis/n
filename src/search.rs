@@ -46,6 +46,17 @@ pub struct Corpus {
     idf: HashMap<String, f32>,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct BM25Score(f32);
+impl From<BM25Score> for f32 {
+    fn from(value: BM25Score) -> Self {
+        let BM25Score(val) = value;
+        val
+    }
+}
+
 impl Corpus {
     /// Because I don't know what's going on here, I'll just randomly choose k_1 as 1.6.
     pub const K1: f32 = 1.6;
@@ -98,7 +109,7 @@ impl Corpus {
     }
 
     /// Calculate the BM25 score of a `document` given the `query`
-    pub fn score(&self, query: &str, document: &str) -> f32 {
+    pub fn score(&self, query: &str, document: &str) -> BM25Score {
         let document_length = document.split_whitespace().count() as f32;
         let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / self.avgdl);
 
@@ -116,7 +127,7 @@ impl Corpus {
             );
 
         // Calculate the BM25 score of each term in the query
-        query
+        let res = query
             .split_whitespace()
             .map(|term| {
                 let term = stemmer.stem(term).to_string();
@@ -124,7 +135,8 @@ impl Corpus {
                 let idf = *self.idf.get(term.as_str()).unwrap_or(&0f32);
                 idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
             })
-            .sum()
+            .sum();
+        BM25Score(res)
     }
 }
 

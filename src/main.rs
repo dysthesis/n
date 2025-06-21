@@ -77,6 +77,10 @@ async fn main() {
                 .search(query)
                 .into_par_iter()
                 // We don't care about documents with no matches.
+                .map(|(k, v)| {
+                    let v: f32 = v.into();
+                    (k, v)
+                })
                 .filter(|(_, score)| score > &0f32)
                 .collect();
             let matches: Vec<&Document> = bm25.iter().map(|(doc, _)| doc).collect();

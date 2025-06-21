@@ -11,7 +11,7 @@ use crate::{
     path::MarkdownPath,
     query::Query,
     rank::{Rank, rank},
-    search::Corpus,
+    search::{BM25Score, Corpus},
 };
 
 /// A collection of notes
@@ -130,7 +130,7 @@ impl Vault {
         ))
     }
 
-    pub fn search(&self, query: String) -> Vec<(Document, f32)> {
+    pub fn search(&self, query: String) -> Vec<(Document, BM25Score)> {
         let documents = &self.documents;
         documents
             .par_iter()
