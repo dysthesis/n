@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// A collection of notes
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct Vault {
     path: PathBuf,
     documents: HashMap<MarkdownPath, Document>,

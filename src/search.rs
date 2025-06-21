@@ -28,13 +28,133 @@
 //!
 //! - https://en.wikipedia.org/wiki/Okapi_BM25
 //! - https://emschwartz.me/understanding-the-bm25-full-text-search-algorithm/
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::{Add, Mul, Sub},
+};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
-use rust_stemmers::{Algorithm, Stemmer};
+use nlprule::{Tokenizer, tokenizer_filename};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 
-#[derive(Serialize, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Default)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Df(u32);
+impl From<Df> for u32 {
+    fn from(Df(value): Df) -> Self {
+        value
+    }
+}
+
+impl Df {
+    fn from(corpus: &Corpus) -> HashMap<String, Self> {
+        corpus
+            .docs
+            .par_iter()
+            .map(|doc| {
+                let mut df: HashMap<String, u32> = HashMap::new();
+                let unique_terms = corpus.tokenize(doc);
+                for term in unique_terms {
+                    *df.entry(term).or_default() += 1;
+                }
+                df.iter()
+                    .map(|(k, v)| (k.clone(), Self(v.clone())))
+                    .collect()
+            })
+            .reduce(
+                || HashMap::new(),
+                |mut a, b| {
+                    a.extend(b);
+                    a
+                },
+            )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Default)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Idf(f32);
+impl From<Idf> for f32 {
+    fn from(Idf(value): Idf) -> Self {
+        value
+    }
+}
+
+impl Default for &Idf {
+    fn default() -> Self {
+        &Idf(0f32)
+    }
+}
+
+impl Sub for Idf {
+    type Output = Idf;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let (Self(rhs), Self(lhs)) = (rhs, self);
+        Self(rhs - lhs)
+    }
+}
+impl Add for Idf {
+    type Output = Idf;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let (Self(rhs), Self(lhs)) = (rhs, self);
+        Self(rhs + lhs)
+    }
+}
+impl Mul for Idf {
+    type Output = Idf;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let (Self(rhs), Self(lhs)) = (rhs, self);
+        Self(rhs * lhs)
+    }
+}
+
+impl Idf {
+    fn from(corpus: &Corpus) -> HashMap<String, Self> {
+        corpus
+            .get_df()
+            .par_iter()
+            .map(|(term, num_occurrence)| {
+                let num_docs = corpus.get_docs().len() as f32;
+                let idf: f32 = {
+                    let num_occurrence: f32 =
+                        <Df as std::convert::Into<u32>>::into(num_occurrence.clone()) as f32;
+                    let res: f32 = (num_docs - num_occurrence + 0.5) / (num_occurrence + 0.5) + 1.0;
+                    res.ln()
+                };
+                (term.clone(), Self(idf))
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Avgdl(f32);
+impl From<Avgdl> for f32 {
+    fn from(Avgdl(value): Avgdl) -> Self {
+        value
+    }
+}
+
+impl From<&Vec<String>> for Avgdl {
+    fn from(value: &Vec<String>) -> Self {
+        Self(
+            value
+                .par_iter()
+                .map(|doc| doc.split_whitespace().count() as f32)
+                .sum::<f32>()
+                / value.len() as f32,
+        )
+    }
+}
+
+#[derive(Serialize)]
 /// The precomputed statistics on the vault
 ///
 /// * `docs`: the stripped-down contents of the documents in the  vault
@@ -42,9 +162,10 @@ use serde::Serialize;
 /// * `idf`: the inverse document frequency
 pub struct Corpus {
     docs: Vec<String>,
-    avgdl: f32,
-    idf: HashMap<String, f32>,
-    df: HashMap<String, u32>,
+    avgdl: Avgdl,
+    idf: HashMap<String, Idf>,
+    df: HashMap<String, Df>,
+    tokenizer: Tokenizer,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
@@ -63,77 +184,103 @@ impl Corpus {
     pub const K1: f32 = 1.6;
     pub const B: f32 = 0.75;
 
+    #[inline]
+    fn insert_doc(&mut self, val: String) {
+        self.docs.push(val)
+    }
+
+    fn get_df(&self) -> &HashMap<String, Df> {
+        &self.df
+    }
+    fn get_idf(&self) -> &HashMap<String, Idf> {
+        &self.idf
+    }
+    fn get_docs(&self) -> &Vec<String> {
+        &self.docs
+    }
+
+    #[inline]
+    fn update_idf(&mut self) {
+        let idf = Idf::from(&self);
+        self.idf = idf;
+    }
+
+    #[inline]
+    fn update_df(&mut self) {
+        let df = Df::from(&self);
+        self.df = df;
+    }
+
+    fn tokenize(&self, str: &str) -> HashSet<String> {
+        self.tokenizer
+            .pipe(str)
+            .flat_map(|s| {
+                s.tokens()
+                    .par_iter()
+                    .map(|w| w.word().as_str().to_string())
+                    .collect::<Vec<String>>()
+            })
+            .collect()
+    }
+
     /// Initilise a new corpus and calculate its statistics
     // NOTE: Figure out if we can guarantee that this document is definitely found in the corpus
     pub fn new(docs: Vec<String>) -> Self {
-        let stemmer = Stemmer::create(Algorithm::English);
         // Find the average length of a document in the corpus
-        let avgdl = docs
-            .iter()
-            .map(|doc| doc.split_whitespace().count() as f32)
-            .sum::<f32>()
-            / docs.len() as f32;
+        let avgdl: Avgdl = (&docs).into();
 
-        // Calculate the document frequency
-        let mut df: HashMap<String, u32> = HashMap::new();
-        for doc in &docs {
-            let unique_terms: HashSet<String> = doc
-                .split_whitespace()
-                .par_bridge()
-                .map(|tok| stemmer.stem(tok).to_string())
-                .collect();
+        let mut tokenizer_bytes: &'static [u8] =
+            include_bytes!(concat!(env!("OUT_DIR"), "/", tokenizer_filename!("en")));
 
-            for term in unique_terms {
-                *df.entry(term).or_default() += 1;
-            }
-        }
+        let tokenizer =
+            Tokenizer::from_reader(&mut tokenizer_bytes).expect("tokenizer binary is valid");
 
-        // Calculate the inverse document frequency of each token from the document frequency
-        let idf = df
-            .par_iter()
-            .map(|(term, num_occurrence)| {
-                let num_docs = docs.len() as f32;
-                let idf: f32 = {
-                    let num_occurrence: f32 = *num_occurrence as f32;
-                    let res: f32 = (num_docs - num_occurrence + 0.5) / (num_occurrence + 0.5) + 1.0;
-                    res.ln()
-                };
-                (term.clone(), idf)
-            })
-            .collect();
-        Self {
+        let mut corpus = Self {
             docs,
             avgdl,
-            idf,
-            df,
-        }
+            idf: HashMap::new(),
+            df: HashMap::new(),
+            tokenizer,
+        };
+
+        // Calculate the document frequency
+        corpus.update_df();
+        corpus.update_idf();
+
+        // Calculate the inverse document frequency of each token from the document frequency
+
+        corpus
     }
 
     /// Calculate the BM25 score of a `document` given the `query`
     pub fn score(&self, query: &str, document: &str) -> BM25Score {
         let document_length = document.split_whitespace().count() as f32;
-        let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / self.avgdl);
+        let Avgdl(avgdl) = self.avgdl;
+        let norm = Self::K1 * (1f32 - Self::B + Self::B * document_length / avgdl);
 
-        let stemmer = Stemmer::create(Algorithm::English);
         // Find out how many times each term shows up in the given document
-        let tf: HashMap<String, usize> = document
-            .split_whitespace()
-            .map(|term| stemmer.stem(term).to_string())
+        let tf: HashMap<String, usize> = self
+            .tokenize(document)
+            .par_iter()
             .fold(
-                HashMap::new(),
+                HashMap::new,
                 |mut frequencies: HashMap<String, usize>, term| {
-                    *frequencies.entry(term).or_default() += 1;
+                    *frequencies.entry(term.clone()).or_default() += 1;
                     frequencies
                 },
-            );
+            )
+            .reduce(HashMap::new, |mut a, b| {
+                a.extend(b);
+                a
+            });
 
         // Calculate the BM25 score of each term in the query
-        let res = query
-            .split_whitespace()
+        let res = self
+            .tokenize(query)
+            .iter()
             .map(|term| {
-                let term = stemmer.stem(term).to_string();
                 let frequency = *tf.get(term.as_str()).unwrap_or(&0) as f32;
-                let idf = *self.idf.get(term.as_str()).unwrap_or(&0f32);
+                let Idf(idf) = *self.idf.get(term.as_str()).unwrap_or_default();
                 idf * ((frequency * (Self::K1 + 1f32)) / (frequency + norm))
             })
             .sum();
@@ -242,7 +389,6 @@ mod tests {
         #[test]
         fn missing_terms_give_zero(
             (docs, missing_term) in corpus().prop_flat_map(|docs| {
-                let stemmer = Stemmer::create(Algorithm::English);
                 let existing_stems: HashSet<String> = docs
                     .iter()
                     .flat_map(|d| d.split_whitespace())
@@ -279,19 +425,27 @@ mod tests {
                     let t1 = &terms[i];
                     let t2 = &terms[j];
 
-                    let df1 = corpus.df[t1];
-                    let df2 = corpus.df[t2];
+                    let df1 = corpus.df[t1].clone();
+                    let df2 = corpus.df[t2].clone();
 
-                    let idf1 = corpus.idf[t1];
-                    let idf2 = corpus.idf[t2];
+                    let idf1 = corpus.idf[t1].clone();
+                    let idf2 = corpus.idf[t2].clone();
 
                     if df1 < df2 {
+                        let df1: u32 = df1.into();
+                        let df2: u32 = df2.into();
+                        let idf1: f32 = idf1.into();
+                        let idf2: f32 = idf2.into();
                         prop_assert!(
                             idf1 > idf2,
                             "Term '{}' (df={}) is rarer than '{}' (df={}), so its IDF ({}) should be > ({})",
                             t1, df1, t2, df2, idf1, idf2
                         );
                     } else if df2 < df1 {
+                        let df1: u32 = df1.into();
+                        let df2: u32 = df2.into();
+                        let idf1: f32 = idf1.into();
+                        let idf2: f32 = idf2.into();
                         prop_assert!(
                             idf2 > idf1,
                             "Term '{}' (df={}) is rarer than '{}' (df={}), so its IDF ({}) should be > ({})",
@@ -299,6 +453,9 @@ mod tests {
                         );
                     } else {
                         let tolerance = 1e-9;
+                        let df1: u32 = df1.into();
+                        let idf1: f32 = idf1.into();
+                        let idf2: f32 = idf2.into();
                         prop_assert!(
                             (idf1 - idf2).abs() < tolerance,
                             "Terms '{}' and '{}' have the same DF ({}), so their IDFs ({}, {}) should be equal",
